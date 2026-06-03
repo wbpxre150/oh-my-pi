@@ -96,6 +96,12 @@ const createTaskSchema = (options: { isolationEnabled: boolean; simpleMode: Task
 		});
 	}
 
+	// Always available
+	schema = schema.extend({
+		disableMCP: z.boolean().optional().describe("disable MCP tools for subagents"),
+		appendSystemPrompt: z.string().optional().describe("text to append to subagent system prompt"),
+	});
+
 	return schema;
 };
 
@@ -129,13 +135,14 @@ export function getTaskSchema(options: { isolationEnabled: boolean; simpleMode: 
 			return options.isolationEnabled ? taskSchema : taskSchemaNoIsolation;
 	}
 }
-
 export interface TaskParams {
 	agent: string;
 	context?: string;
 	schema?: string;
 	tasks: TaskItem[];
 	isolated?: boolean;
+	disableMCP?: boolean;
+	appendSystemPrompt?: string;
 }
 
 /** A code review finding reported by the reviewer agent */

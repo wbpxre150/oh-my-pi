@@ -8,6 +8,7 @@ import path from "node:path";
 import type { AgentEvent, AgentIdentity, AgentTelemetryConfig, ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import { recordHandoff, resolveTelemetry } from "@oh-my-pi/pi-agent-core";
 import { logger, prompt, untilAborted } from "@oh-my-pi/pi-utils";
+import { findConfigFile } from "../config";
 import { ModelRegistry } from "../config/model-registry";
 import { resolveModelOverrideWithAuthFallback } from "../config/model-resolver";
 import type { PromptTemplate } from "../config/prompt-templates";
@@ -174,6 +175,10 @@ export interface ExecutorOptions {
 	promptTemplates?: PromptTemplate[];
 	workspaceTree?: WorkspaceTree;
 	mcpManager?: MCPManager;
+	/** When true, skip MCP proxy tools and don't pass mcpManager to the subagent. */
+	disableMCP?: boolean;
+	/** Custom text to append to the subagent's system prompt, before the project/environment footer. */
+	appendSystemPrompt?: string;
 	authStorage?: AuthStorage;
 	modelRegistry?: ModelRegistry;
 	settings?: Settings;
@@ -1176,8 +1181,9 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				sessionManager.adoptArtifactManager(options.parentArtifactManager);
 			}
 
-			const mcpProxyTools = options.mcpManager ? createMCPProxyTools(options.mcpManager) : [];
-			const enableMCP = !options.mcpManager;
+			const mcpProxyTools = options.mcpManager && !options.disableMCP ? createMCPProxyTools(options.mcpManager) : [];
+			const childMCPManager = options.disableMCP ? undefined : options.mcpManager;
+			const enableMCP = !childMCPManager;
 
 			// Derive subagent-scoped telemetry from the parent's config so the
 			// child loop's spans nest under the parent's active execute_tool span
@@ -1209,6 +1215,9 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				});
 			}
 
+			// Auto-discover APPEND_SYSTEM_TASK.md from config dirs
+			const resolvedAppendSystemPrompt = options.appendSystemPrompt ?? resolveAppendSystemTaskPrompt(cwd, worktree);
+
 			const { normalized: normalizedOutputSchema } = normalizeSchema(outputSchema);
 
 			const { session } = await awaitAbortable(
@@ -1236,9 +1245,15 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 							ircPeers: ircEnabled ? renderIrcPeerRoster(id) : "",
 							ircSelfId: ircEnabled ? id : "",
 						});
-						return defaultPrompt.length === 0
-							? [subagentPrompt]
-							: [...defaultPrompt.slice(0, -1), subagentPrompt, defaultPrompt[defaultPrompt.length - 1]];
+						const blocks =
+							defaultPrompt.length === 0
+								? [subagentPrompt]
+								: [...defaultPrompt.slice(0, -1), subagentPrompt, defaultPrompt[defaultPrompt.length - 1]];
+						if (resolvedAppendSystemPrompt) {
+							// Insert before the project/environment footer block (last element)
+							blocks.splice(blocks.length - 1, 0, resolvedAppendSystemPrompt);
+						}
+						return blocks;
 					},
 					sessionManager,
 					hasUI: false,
@@ -1252,7 +1267,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					enableLsp: lspEnabled,
 					skipPythonPreflight,
 					enableMCP,
-					mcpManager: options.mcpManager,
+					mcpManager: childMCPManager,
 					customTools: mcpProxyTools.length > 0 ? mcpProxyTools : undefined,
 					localProtocolOptions: options.localProtocolOptions,
 					telemetry: subagentTelemetry,
@@ -1644,4 +1659,20 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		retryFailure: progress.retryFailure,
 		outputMeta,
 	};
+}
+
+/**
+ * Discover and load APPEND_SYSTEM_TASK.md from config dirs relative to cwd.
+ * Returns the file contents or undefined if not found.
+ * When worktree is set (isolated mode), searches there instead of cwd.
+ */
+function resolveAppendSystemTaskPrompt(cwd: string, worktree?: string): string | undefined {
+	const searchDir = worktree ?? cwd;
+	const filePath = findConfigFile("APPEND_SYSTEM_TASK.md", { cwd: searchDir, user: true });
+	if (!filePath) return undefined;
+	try {
+		return Bun.file(filePath).text();
+	} catch {
+		return undefined;
+	}
 }
