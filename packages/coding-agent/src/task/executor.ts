@@ -1234,8 +1234,10 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				sessionManager.adoptArtifactManager(options.parentArtifactManager);
 			}
 
-			const mcpProxyTools = options.mcpManager ? createMCPProxyTools(options.mcpManager) : [];
-			const enableMCP = !options.mcpManager;
+			const disableMCP = agent.disableMCP ?? false;
+			const mcpProxyTools = !disableMCP && options.mcpManager ? createMCPProxyTools(options.mcpManager) : [];
+			const childMCPManager = disableMCP ? undefined : options.mcpManager;
+			const enableMCP = !childMCPManager;
 
 			// Derive subagent-scoped telemetry from the parent's config so the
 			// child loop's spans nest under the parent's active execute_tool span
@@ -1312,7 +1314,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					enableLsp: lspEnabled,
 					skipPythonPreflight,
 					enableMCP,
-					mcpManager: options.mcpManager,
+					mcpManager: childMCPManager,
 					customTools: mcpProxyTools.length > 0 ? mcpProxyTools : undefined,
 					localProtocolOptions: options.localProtocolOptions,
 					telemetry: subagentTelemetry,
