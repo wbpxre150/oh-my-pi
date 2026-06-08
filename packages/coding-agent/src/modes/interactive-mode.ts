@@ -1555,16 +1555,18 @@ export class InteractiveMode implements InteractiveModeContext {
 				if (!state?.enabled) {
 					throw new ToolError("Plan mode is not active.");
 				}
-				const { planFilePath, title } = await resolveApprovedPlan({
+				const { planFilePath, title, stageContents } = await resolveApprovedPlan({
 					suppliedTitle: extra?.title,
 					statePlanFilePath: state.planFilePath,
 					readPlan: url => this.#readPlanFile(url),
 					listPlanFiles: () => this.#listLocalPlanFiles(),
+					listStageFiles: () => this.#listLocalStageFiles(),
 				});
 				const details: PlanApprovalDetails = {
 					planFilePath,
 					title,
 					planExists: true,
+					stageContents,
 				};
 				return {
 					content: [{ type: "text" as const, text: "Plan ready for approval." }],
@@ -1719,6 +1721,25 @@ export class InteractiveMode implements InteractiveModeContext {
 					}),
 			);
 			return plans.sort((a, b) => b.mtime - a.mtime).map(plan => plan.url);
+		} catch {
+			return [];
+		}
+	}
+	/** `local://` URLs of stage files in the session-local root, newest first.
+	 *  Used by `resolveApprovedPlan` to discover `stage-*.md` files alongside the plan. */
+	async #listLocalStageFiles(): Promise<string[]> {
+		const localRoot = this.#resolvePlanFilePath("local://");
+		try {
+			const entries = await fs.readdir(localRoot, { withFileTypes: true });
+			const stages = await Promise.all(
+				entries
+					.filter(entry => entry.isFile() && /^stage-\d+\.md$/i.test(entry.name))
+					.map(async name => {
+						const stat = await fs.stat(path.join(localRoot, name.name)).catch(() => null);
+						return { url: `local://${name.name}`, mtime: stat?.mtimeMs ?? 0 };
+					}),
+			);
+			return stages.sort((a, b) => b.mtime - a.mtime).map(stage => stage.url);
 		} catch {
 			return [];
 		}
@@ -1899,6 +1920,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			preserveContext?: boolean;
 			compactBeforeExecute?: boolean;
 			executionModel?: ResolvedRoleModel;
+			stageContents?: Array<{ path: string; content: string }>;
 		},
 	): Promise<void> {
 		const previousTools = this.#planModePreviousTools ?? this.session.getActiveToolNames();
@@ -1925,6 +1947,16 @@ export class InteractiveMode implements InteractiveModeContext {
 					getSessionId: () => this.sessionManager.getSessionId(),
 				});
 				await Bun.write(newLocalPath, planContent);
+				// Persist stage files in the new session
+				if (options.stageContents?.length) {
+					for (const stage of options.stageContents) {
+						const stagePath = resolveLocalUrlToPath(stage.path, {
+							getArtifactsDir: () => this.sessionManager.getArtifactsDir(),
+							getSessionId: () => this.sessionManager.getSessionId(),
+						});
+						await Bun.write(stagePath, stage.content);
+					}
+				}
 			} else if (options.compactBeforeExecute) {
 				// Distill the plan-mode transcript before the execution turn is queued so
 				// the plan-approved synthetic prompt lands as a fresh cache anchor.
@@ -1933,8 +1965,9 @@ export class InteractiveMode implements InteractiveModeContext {
 				// past the cancel guard — see the comment at the cancel branch.
 				// Cancellation skips the synthetic-prompt dispatch (operator's explicit
 				// abort is honored); failure proceeds best-effort — approval intent stands.
+				const stageFilePaths = options.stageContents?.map(s => s.path).join(", ");
 				const compactionPrompt = prompt.render(planModeCompactInstructionsPrompt, {
-					planFilePath: options.planFilePath,
+					stageFilePaths: stageFilePaths ?? options.planFilePath,
 				});
 				// Pin the plan reference path BEFORE compaction so any user messages
 				// queued during the compaction await (which `handleCompactCommand`
@@ -1994,8 +2027,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		// plan-approved prompt is the source of the reference injection.
 		this.session.markPlanReferenceSent();
 		const planModePrompt = prompt.render(planModeApprovedPrompt, {
-			planContent,
-			planFilePath: options.planFilePath,
+			stageFiles: options.stageContents?.length
+				? options.stageContents.map((sc, idx) => ({ path: sc.path, content: sc.content, index: idx + 1 }))
+				: [{ path: options.planFilePath, content: planContent, index: 1 }],
 			contextPreserved: options.preserveContext === true,
 		});
 		await this.session.prompt(planModePrompt, { synthetic: true });
@@ -2369,6 +2403,7 @@ export class InteractiveMode implements InteractiveModeContext {
 					preserveContext: choice !== "Approve and execute",
 					compactBeforeExecute: choice === "Approve and compact context",
 					executionModel,
+					stageContents: details.stageContents,
 				});
 			} catch (error) {
 				this.showError(
