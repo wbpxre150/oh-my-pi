@@ -9,6 +9,8 @@ export interface PlanApprovalDetails {
 	planFilePath: string;
 	title: string;
 	planExists: boolean;
+	/** Stage files discovered alongside the plan. */
+	stageContents?: Array<{ path: string; content: string }>;
 }
 
 /** Validate and normalize the agent-supplied plan title into a safe filename stem.
@@ -113,6 +115,10 @@ export function humanizePlanTitle(title: string): string {
 export function planFileUrlForSlug(slug: string): string {
 	return `local://${slug}-plan.md`;
 }
+/** The `local://` URL for a stage file at a given 1-based index. */
+export function stageFileUrlForIndex(index: number): string {
+	return `local://stage-${index}.md`;
+}
 
 /** Derive a `<slug>` from an agent-supplied `extra.title`, or `undefined` when
  *  the title is missing/non-string/unsanitizable. A trailing `-plan` is stripped
@@ -139,38 +145,65 @@ export interface ResolveApprovedPlanInput {
 	 *  plan whose name can't be reconstructed (e.g. a dropped `extra.title`) is
 	 *  still found. */
 	listPlanFiles?: () => Promise<string[]>;
+	/** Optional: list stage file `local://` URLs. */
+	listStageFiles?: () => Promise<string[]>;
 }
 
 export interface ResolvedApprovedPlan {
 	planFilePath: string;
 	planContent: string;
 	title: string;
+	/** Stage files discovered alongside the plan. */
+	stageContents?: Array<{ path: string; content: string }>;
 }
 
 /** Locate the plan file the agent wrote and finalize its title — without
  *  renaming anything. Tries, in order: the slug derived from `extra.title`
  *  (`local://<slug>-plan.md`), the plan path from plan-mode state, then a scan
  *  of recent plan files. Throws a `ToolError` guiding the agent when none exist. */
+async function scanStageFiles(
+	input: ResolveApprovedPlanInput,
+	planFilePath: string,
+): Promise<Array<{ path: string; content: string }> | undefined> {
+	if (!input.listStageFiles) return undefined;
+	const stageUrls = await input.listStageFiles();
+	if (stageUrls.length === 0) return undefined;
+	const contents: Array<{ path: string; content: string }> = [];
+	for (const url of stageUrls) {
+		const content = await input.readPlan(url);
+		if (content !== null) {
+			contents.push({ path: url, content });
+		}
+	}
+	return contents.length > 0 ? contents : undefined;
+}
 export async function resolveApprovedPlan(input: ResolveApprovedPlanInput): Promise<ResolvedApprovedPlan> {
 	const ordered: string[] = [];
 	const consider = (url: string | undefined): void => {
 		if (url && !ordered.includes(url)) ordered.push(url);
 	};
-
 	const slug = planSlugFromSupplied(input.suppliedTitle);
 	consider(slug ? planFileUrlForSlug(slug) : undefined);
 	consider(input.statePlanFilePath);
 
 	for (const url of ordered) {
 		const content = await input.readPlan(url);
-		if (content !== null) return finalizeApprovedPlan(url, content, input.suppliedTitle);
+		if (content !== null) {
+			const result = finalizeApprovedPlan(url, content, input.suppliedTitle);
+			result.stageContents = await scanStageFiles(input, url);
+			return result;
+		}
 	}
 
 	if (input.listPlanFiles) {
 		for (const url of await input.listPlanFiles()) {
 			if (ordered.includes(url)) continue;
 			const content = await input.readPlan(url);
-			if (content !== null) return finalizeApprovedPlan(url, content, input.suppliedTitle);
+			if (content !== null) {
+				const result = finalizeApprovedPlan(url, content, input.suppliedTitle);
+				result.stageContents = await scanStageFiles(input, url);
+				return result;
+			}
 		}
 	}
 
