@@ -1426,17 +1426,19 @@ export class AcpAgent implements Agent {
 				if (!state?.enabled) {
 					throw new ToolError("Plan mode is not active.");
 				}
-				const { planFilePath, planContent, title } = await resolveApprovedPlan({
+				const { planFilePath, planContent, title, stageContents } = await resolveApprovedPlan({
 					suppliedTitle: extra?.title,
 					statePlanFilePath: state.planFilePath,
 					readPlan: url => this.#readAcpPlanFile(session, url),
 					listPlanFiles: () => this.#listAcpLocalPlanFiles(session),
+					listStageFiles: () => this.#listAcpLocalStageFiles(session),
 				});
 				const approved = await this.#requestAcpPlanApprovalChoice(session.sessionId, title, planContent);
 				const details: PlanApprovalDetails = {
 					planFilePath,
 					title,
 					planExists: true,
+					stageContents,
 				};
 				if (!approved) {
 					// User chose to refine: leave plan mode active so the agent
@@ -1520,6 +1522,25 @@ export class AcpAgent implements Agent {
 					}),
 			);
 			return plans.sort((a, b) => b.mtime - a.mtime).map(plan => plan.url);
+		} catch {
+			return [];
+		}
+	}
+	/** `local://` URLs of stage files in the session-local root, used by the
+	 *  `resolveApprovedPlan` fallback to discover `stage-*.md` files. */
+	async #listAcpLocalStageFiles(session: AgentSession): Promise<string[]> {
+		const localRoot = this.#resolveAcpPlanFilePath(session, "local://");
+		try {
+			const entries = await fs.readdir(localRoot, { withFileTypes: true });
+			const stages = await Promise.all(
+				entries
+					.filter(entry => entry.isFile() && /^stage-\d+\.md$/i.test(entry.name))
+					.map(async entry => {
+						const stat = await fs.stat(path.join(localRoot, entry.name)).catch(() => null);
+						return { url: `local://${entry.name}`, mtime: stat?.mtimeMs ?? 0 };
+					}),
+			);
+			return stages.sort((a, b) => b.mtime - a.mtime).map(stage => stage.url);
 		} catch {
 			return [];
 		}
