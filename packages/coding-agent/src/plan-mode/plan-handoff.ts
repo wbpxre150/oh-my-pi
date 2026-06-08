@@ -1,5 +1,7 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { isEnoent } from "@oh-my-pi/pi-utils";
-import { type LocalProtocolOptions, resolveLocalUrlToPath } from "../internal-urls";
+import { type LocalProtocolOptions, resolveLocalRoot, resolveLocalUrlToPath } from "../internal-urls";
 
 /** The session's active plan, resolved for handoff into a subagent's context. */
 export interface OverallPlanReference {
@@ -34,4 +36,40 @@ export async function loadOverallPlanReference(
 	}
 	if (!content.trim()) return undefined;
 	return { path: planReferencePath, content };
+}
+
+/**
+ * Load all stage files from the session's local:// root for subagent handoff.
+ * Returns an ordered list of stage references, or undefined when no stage files exist.
+ * Stage files are sorted by their numeric index (stage-1.md, stage-2.md, etc.).
+ */
+export async function loadStagePlanReferences(
+	localProtocolOptions: LocalProtocolOptions,
+): Promise<OverallPlanReference[] | undefined> {
+	const localRoot = resolveLocalRoot(localProtocolOptions);
+	let entries: string[];
+	try {
+		const dirents = await fs.readdir(localRoot, { withFileTypes: true });
+		entries = dirents
+			.filter(e => e.isFile() && /^stage-\d+\.md$/i.test(e.name))
+			.map(e => e.name)
+			.sort();
+	} catch {
+		return undefined;
+	}
+
+	const stages: OverallPlanReference[] = [];
+	for (const name of entries) {
+		const fullPath = path.join(localRoot, name);
+		try {
+			const content = await Bun.file(fullPath).text();
+			if (content.trim()) {
+				stages.push({ path: `local://${name}`, content });
+			}
+		} catch (error) {
+			if (!isEnoent(error)) throw error;
+		}
+	}
+
+	return stages.length > 0 ? stages : undefined;
 }

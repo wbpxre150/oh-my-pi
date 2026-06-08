@@ -15,6 +15,7 @@
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { scheduler } from "node:timers/promises";
@@ -159,7 +160,7 @@ import { expandSlashCommand, type FileSlashCommand } from "../extensibility/slas
 import { GoalRuntime } from "../goals/runtime";
 import type { Goal, GoalModeState } from "../goals/state";
 import type { HindsightSessionState } from "../hindsight/state";
-import { type LocalProtocolOptions, resolveLocalUrlToPath } from "../internal-urls";
+import { type LocalProtocolOptions, resolveLocalRoot, resolveLocalUrlToPath } from "../internal-urls";
 import { resolveMemoryBackend } from "../memory-backend";
 import { getMnemopiSessionState, type MnemopiSessionState, setMnemopiSessionState } from "../mnemopi/state";
 import { containsOrchestrate, ORCHESTRATE_NOTICE } from "../modes/orchestrate";
@@ -4222,9 +4223,34 @@ export class AgentSession {
 			throw error;
 		}
 
+		// Discover stage files alongside the plan
+		const localRoot = resolveLocalRoot(this.#localProtocolOptions());
+		const stageFiles: Array<{ path: string; content: string; index: number }> = [];
+		try {
+			const entries = await fsPromises.readdir(localRoot, { withFileTypes: true });
+			const stageNames = entries
+				.filter(entry => entry.isFile() && /^stage-\d+\.md$/i.test(entry.name))
+				.map(entry => entry.name)
+				.sort();
+			let idx = 1;
+			for (const name of stageNames) {
+				try {
+					const content = await Bun.file(path.join(localRoot, name)).text();
+					if (content.trim()) {
+						stageFiles.push({ path: `local://${name}`, content, index: idx++ });
+					}
+				} catch {
+					// skip unreadable stage files
+				}
+			}
+		} catch {
+			// no local root or no stage files
+		}
+
 		const content = prompt.render(planModeReferencePrompt, {
 			planFilePath,
 			planContent,
+			stageFiles: stageFiles.length > 0 ? stageFiles : undefined,
 		});
 
 		this.#planReferenceSent = true;
