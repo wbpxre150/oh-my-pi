@@ -11,6 +11,6 @@ You MUST drop:
 - Superseded plan drafts.
 - Restated context already present in the plan file.
 
-{{#if planFilePath}}
-The approved plan file is at `{{planFilePath}}`; it is the authoritative source of truth and need not be re-summarized in detail.
+{{#if stageFilePaths}}
+The approved stage files are at: {{stageFilePaths}}. They are the authoritative source of truth and need not be re-summarized in detail.
 {{/if}}
