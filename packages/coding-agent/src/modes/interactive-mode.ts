@@ -1947,16 +1947,6 @@ export class InteractiveMode implements InteractiveModeContext {
 					getSessionId: () => this.sessionManager.getSessionId(),
 				});
 				await Bun.write(newLocalPath, planContent);
-				// Persist stage files in the new session
-				if (options.stageContents?.length) {
-					for (const stage of options.stageContents) {
-						const stagePath = resolveLocalUrlToPath(stage.path, {
-							getArtifactsDir: () => this.sessionManager.getArtifactsDir(),
-							getSessionId: () => this.sessionManager.getSessionId(),
-						});
-						await Bun.write(stagePath, stage.content);
-					}
-				}
 			} else if (options.compactBeforeExecute) {
 				// Distill the plan-mode transcript before the execution turn is queued so
 				// the plan-approved synthetic prompt lands as a fresh cache anchor.
@@ -1977,6 +1967,22 @@ export class InteractiveMode implements InteractiveModeContext {
 				// branch.
 				this.session.setPlanReferencePath(options.planFilePath);
 				compactOutcome = await this.handleCompactCommand(compactionPrompt);
+			}
+
+			// Persist stage files in the current session's local:// root on every
+			// approval path so subagents can read them: `local://stage-*.md` is
+			// referenced from the synthetic prompt and the plan reference message.
+			// For !preserveContext the session is fresh (handleClearCommand above
+			// already ran); for preserveContext paths this writes into the existing
+			// session's local root alongside the original plan-mode files.
+			if (options.stageContents?.length) {
+				for (const stage of options.stageContents) {
+					const stagePath = resolveLocalUrlToPath(stage.path, {
+						getArtifactsDir: () => this.sessionManager.getArtifactsDir(),
+						getSessionId: () => this.sessionManager.getSessionId(),
+					});
+					await Bun.write(stagePath, stage.content);
+				}
 			}
 		} finally {
 			// Unconditional clear. Idempotent: a no-op when the flag was never set

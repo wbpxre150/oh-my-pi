@@ -1471,7 +1471,19 @@ export class AcpAgent implements Agent {
 						error,
 					});
 				}
-				return {
+				// Persist stage files in the session's local:// root so subagents
+				// can read them: the synthetic prompt and plan reference message
+				// reference `local://stage-*.md` paths.
+				if (details.stageContents?.length) {
+					for (const stage of details.stageContents) {
+						const stagePath = resolveLocalUrlToPath(stage.path, {
+							getArtifactsDir: () => session.sessionManager.getArtifactsDir(),
+							getSessionId: () => session.sessionManager.getSessionId(),
+						});
+						await Bun.write(stagePath, stage.content);
+					}
+				}
+ 				return {
 					content: [
 						{
 							type: "text" as const,
