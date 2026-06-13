@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isEnoent } from "@oh-my-pi/pi-utils";
 import { type LocalProtocolOptions, resolveLocalRoot, resolveLocalUrlToPath } from "../internal-urls";
+import { stageFileIndex } from "./approved-plan";
 
 /** The session's active plan, resolved for handoff into a subagent's context. */
 export interface OverallPlanReference {
@@ -53,7 +54,7 @@ export async function loadStagePlanReferences(
 		entries = dirents
 			.filter(e => e.isFile() && /^stage-\d+\.md$/i.test(e.name))
 			.map(e => e.name)
-			.sort();
+			.sort((a, b) => stageFileIndex(a) - stageFileIndex(b));
 	} catch {
 		return undefined;
 	}

@@ -120,6 +120,14 @@ export function stageFileUrlForIndex(index: number): string {
 	return `local://stage-${index}.md`;
 }
 
+/** Numeric index parsed from a `stage-<N>.md` filename (an optional `local://`
+ *  scheme or directory prefix is ignored). Returns `+Infinity` for names without
+ *  a `stage-<N>` component so they sort last under a numeric comparator. */
+export function stageFileIndex(name: string): number {
+	const match = /stage-(\d+)\.md$/i.exec(name);
+	return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
+
 /** Derive a `<slug>` from an agent-supplied `extra.title`, or `undefined` when
  *  the title is missing/non-string/unsanitizable. A trailing `-plan` is stripped
  *  so a supplied "auth-plan" maps to `auth-plan.md`, not `auth-plan-plan.md`. */

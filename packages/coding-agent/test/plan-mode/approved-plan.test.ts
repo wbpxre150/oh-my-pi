@@ -5,11 +5,30 @@ import {
 	planFileUrlForSlug,
 	resolveApprovedPlan,
 	resolvePlanTitle,
+	stageFileIndex,
 } from "@oh-my-pi/pi-coding-agent/plan-mode/approved-plan";
 
 describe("planFileUrlForSlug", () => {
 	it("maps a slug to its local plan URL", () => {
 		expect(planFileUrlForSlug("auth-refactor")).toBe("local://auth-refactor-plan.md");
+	});
+});
+
+describe("stageFileIndex", () => {
+	it("parses the numeric stage index from a local:// stage path", () => {
+		expect(stageFileIndex("local://stage-1.md")).toBe(1);
+		expect(stageFileIndex("local://stage-10.md")).toBe(10);
+	});
+
+	it("parses bare and uppercase stage filenames", () => {
+		expect(stageFileIndex("stage-3.md")).toBe(3);
+		expect(stageFileIndex("STAGE-2.MD")).toBe(2);
+	});
+
+	it("returns +Infinity for non-stage names so they sort last", () => {
+		expect(stageFileIndex("local://auth-plan.md")).toBe(Number.POSITIVE_INFINITY);
+		const sorted = ["stage-2.md", "stage-10.md", "stage-1.md"].sort((a, b) => stageFileIndex(a) - stageFileIndex(b));
+		expect(sorted).toEqual(["stage-1.md", "stage-2.md", "stage-10.md"]);
 	});
 });
 

@@ -169,6 +169,7 @@ import { parseTurnBudget } from "../modes/turn-budget";
 import { containsUltrathink, ULTRATHINK_NOTICE } from "../modes/ultrathink";
 import { computeNonMessageTokens } from "../modes/utils/context-usage";
 import { containsWorkflow, WORKFLOW_NOTICE } from "../modes/workflow";
+import { stageFileIndex } from "../plan-mode/approved-plan";
 import { createPlanReadMatcher } from "../plan-mode/plan-protection";
 import type { PlanModeState } from "../plan-mode/state";
 import autoContinuePrompt from "../prompts/system/auto-continue.md" with { type: "text" };
@@ -4225,19 +4226,20 @@ export class AgentSession {
 
 		// Discover stage files alongside the plan
 		const localRoot = resolveLocalRoot(this.#localProtocolOptions());
-		const stageFiles: Array<{ path: string; content: string; index: number }> = [];
+		const stageFiles: Array<{ path: string; index: number }> = [];
 		try {
 			const entries = await fsPromises.readdir(localRoot, { withFileTypes: true });
 			const stageNames = entries
 				.filter(entry => entry.isFile() && /^stage-\d+\.md$/i.test(entry.name))
 				.map(entry => entry.name)
-				.sort();
-			let idx = 1;
+				.sort((a, b) => stageFileIndex(a) - stageFileIndex(b));
 			for (const name of stageNames) {
 				try {
+					// Read only to skip empty stage stubs; the body is referenced by
+					// path, not inlined into the prompt.
 					const content = await Bun.file(path.join(localRoot, name)).text();
 					if (content.trim()) {
-						stageFiles.push({ path: `local://${name}`, content, index: idx++ });
+						stageFiles.push({ path: `local://${name}`, index: stageFileIndex(name) });
 					}
 				} catch {
 					// skip unreadable stage files

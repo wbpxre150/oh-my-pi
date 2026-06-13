@@ -65,7 +65,12 @@ import { BUILTIN_SLASH_COMMANDS, loadSlashCommands } from "../extensibility/slas
 import type { Goal, GoalModeState } from "../goals/state";
 import { resolveLocalUrlToPath } from "../internal-urls";
 import { LSP_STARTUP_EVENT_CHANNEL, type LspStartupEvent } from "../lsp/startup-events";
-import { humanizePlanTitle, type PlanApprovalDetails, resolveApprovedPlan } from "../plan-mode/approved-plan";
+import {
+	humanizePlanTitle,
+	type PlanApprovalDetails,
+	resolveApprovedPlan,
+	stageFileIndex,
+} from "../plan-mode/approved-plan";
 import planModeApprovedPrompt from "../prompts/system/plan-mode-approved.md" with { type: "text" };
 import planModeCompactInstructionsPrompt from "../prompts/system/plan-mode-compact-instructions.md" with {
 	type: "text",
@@ -1725,21 +1730,17 @@ export class InteractiveMode implements InteractiveModeContext {
 			return [];
 		}
 	}
-	/** `local://` URLs of stage files in the session-local root, newest first.
+	/** `local://` URLs of stage files in the session-local root, ordered by their
+	 *  numeric stage index (`stage-1.md`, `stage-2.md`, …, `stage-10.md`).
 	 *  Used by `resolveApprovedPlan` to discover `stage-*.md` files alongside the plan. */
 	async #listLocalStageFiles(): Promise<string[]> {
 		const localRoot = this.#resolvePlanFilePath("local://");
 		try {
 			const entries = await fs.readdir(localRoot, { withFileTypes: true });
-			const stages = await Promise.all(
-				entries
-					.filter(entry => entry.isFile() && /^stage-\d+\.md$/i.test(entry.name))
-					.map(async name => {
-						const stat = await fs.stat(path.join(localRoot, name.name)).catch(() => null);
-						return { url: `local://${name.name}`, mtime: stat?.mtimeMs ?? 0 };
-					}),
-			);
-			return stages.sort((a, b) => b.mtime - a.mtime).map(stage => stage.url);
+			return entries
+				.filter(entry => entry.isFile() && /^stage-\d+\.md$/i.test(entry.name))
+				.map(entry => `local://${entry.name}`)
+				.sort((a, b) => stageFileIndex(a) - stageFileIndex(b));
 		} catch {
 			return [];
 		}
@@ -2034,8 +2035,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.session.markPlanReferenceSent();
 		const planModePrompt = prompt.render(planModeApprovedPrompt, {
 			stageFiles: options.stageContents?.length
-				? options.stageContents.map((sc, idx) => ({ path: sc.path, content: sc.content, index: idx + 1 }))
-				: [{ path: options.planFilePath, content: planContent, index: 1 }],
+				? options.stageContents.map(sc => ({ path: sc.path, index: stageFileIndex(sc.path) }))
+				: [{ path: options.planFilePath, index: 1 }],
 			contextPreserved: options.preserveContext === true,
 		});
 		await this.session.prompt(planModePrompt, { synthetic: true });

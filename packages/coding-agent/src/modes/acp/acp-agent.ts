@@ -63,7 +63,7 @@ import { MCPManager } from "../../mcp/manager";
 import type { MCPServerConfig } from "../../mcp/types";
 import { loadAllExtensions } from "../../modes/components/extensions/state-manager";
 import { theme } from "../../modes/theme/theme";
-import { type PlanApprovalDetails, resolveApprovedPlan } from "../../plan-mode/approved-plan";
+import { type PlanApprovalDetails, resolveApprovedPlan, stageFileIndex } from "../../plan-mode/approved-plan";
 import type { AgentSession, AgentSessionEvent } from "../../session/agent-session";
 import { isSilentAbort, SKILL_PROMPT_MESSAGE_TYPE } from "../../session/messages";
 import {
@@ -1483,7 +1483,7 @@ export class AcpAgent implements Agent {
 						await Bun.write(stagePath, stage.content);
 					}
 				}
- 				return {
+				return {
 					content: [
 						{
 							type: "text" as const,
@@ -1544,15 +1544,10 @@ export class AcpAgent implements Agent {
 		const localRoot = this.#resolveAcpPlanFilePath(session, "local://");
 		try {
 			const entries = await fs.readdir(localRoot, { withFileTypes: true });
-			const stages = await Promise.all(
-				entries
-					.filter(entry => entry.isFile() && /^stage-\d+\.md$/i.test(entry.name))
-					.map(async entry => {
-						const stat = await fs.stat(path.join(localRoot, entry.name)).catch(() => null);
-						return { url: `local://${entry.name}`, mtime: stat?.mtimeMs ?? 0 };
-					}),
-			);
-			return stages.sort((a, b) => b.mtime - a.mtime).map(stage => stage.url);
+			return entries
+				.filter(entry => entry.isFile() && /^stage-\d+\.md$/i.test(entry.name))
+				.map(entry => `local://${entry.name}`)
+				.sort((a, b) => stageFileIndex(a) - stageFileIndex(b));
 		} catch {
 			return [];
 		}
