@@ -163,7 +163,6 @@ export interface ResolvedApprovedPlan {
  *  of recent plan files. Throws a `ToolError` guiding the agent when none exist. */
 async function scanStageFiles(
 	input: ResolveApprovedPlanInput,
-	planFilePath: string,
 ): Promise<Array<{ path: string; content: string }> | undefined> {
 	if (!input.listStageFiles) return undefined;
 	const stageUrls = await input.listStageFiles();
@@ -189,9 +188,7 @@ export async function resolveApprovedPlan(input: ResolveApprovedPlanInput): Prom
 	for (const url of ordered) {
 		const content = await input.readPlan(url);
 		if (content !== null) {
-			const result = finalizeApprovedPlan(url, content, input.suppliedTitle);
-			result.stageContents = await scanStageFiles(input, url);
-			return result;
+			return await finalizeWithStages(input, url, content);
 		}
 	}
 
@@ -200,9 +197,7 @@ export async function resolveApprovedPlan(input: ResolveApprovedPlanInput): Prom
 			if (ordered.includes(url)) continue;
 			const content = await input.readPlan(url);
 			if (content !== null) {
-				const result = finalizeApprovedPlan(url, content, input.suppliedTitle);
-				result.stageContents = await scanStageFiles(input, url);
-				return result;
+				return await finalizeWithStages(input, url, content);
 			}
 		}
 	}
@@ -211,6 +206,26 @@ export async function resolveApprovedPlan(input: ResolveApprovedPlanInput): Prom
 	throw new ToolError(
 		`Plan file not found at ${target}. Write the finalized plan to ${target} before requesting approval.`,
 	);
+}
+
+/** Finalize the located plan, attach discovered stage files, and enforce that at
+ *  least one stage file exists when the caller supports stage discovery. The plan
+ *  summary alone is not executable, so a missing stage set surfaces as an actionable
+ *  `ToolError` naming the exact filenames the agent must write — rather than silently
+ *  approving a summary-only plan whose stages never reach the executor. */
+async function finalizeWithStages(
+	input: ResolveApprovedPlanInput,
+	url: string,
+	content: string,
+): Promise<ResolvedApprovedPlan> {
+	const result = finalizeApprovedPlan(url, content, input.suppliedTitle);
+	result.stageContents = await scanStageFiles(input);
+	if (input.listStageFiles && !result.stageContents?.length) {
+		throw new ToolError(
+			"No stage files found. Write each stage to its own file named exactly local://stage-1.md, local://stage-2.md, … (N starts at 1, contiguous; no slug prefix or suffix, no subdirectory, always the local:// scheme) before requesting approval. The plan summary alone cannot be executed.",
+		);
+	}
+	return result;
 }
 
 function finalizeApprovedPlan(planFilePath: string, planContent: string, suppliedTitle: unknown): ResolvedApprovedPlan {

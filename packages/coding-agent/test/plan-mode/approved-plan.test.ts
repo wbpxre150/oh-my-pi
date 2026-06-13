@@ -57,6 +57,31 @@ describe("resolveApprovedPlan", () => {
 		});
 		expect(result.planFilePath).toBe("local://discovered-plan.md");
 	});
+	it("attaches discovered stage files to the resolved plan", async () => {
+		const result = await resolveApprovedPlan({
+			suppliedTitle: "auth-refactor",
+			statePlanFilePath: "local://PLAN.md",
+			readPlan: reader({
+				"local://auth-refactor-plan.md": "# Auth refactor\n\nbody",
+				"local://stage-1.md": "# Stage 1\n\nfoundation",
+				"local://stage-2.md": "# Stage 2\n\nlogic",
+			}),
+			listStageFiles: async () => ["local://stage-1.md", "local://stage-2.md"],
+		});
+		expect(result.stageContents?.map(stage => stage.path)).toEqual(["local://stage-1.md", "local://stage-2.md"]);
+		expect(result.stageContents?.[0]?.content).toContain("foundation");
+	});
+
+	it("throws when stage discovery is supported but no stage files exist", async () => {
+		await expect(
+			resolveApprovedPlan({
+				suppliedTitle: "auth-refactor",
+				statePlanFilePath: "local://PLAN.md",
+				readPlan: reader({ "local://auth-refactor-plan.md": "# Auth refactor\n\nbody" }),
+				listStageFiles: async () => [],
+			}),
+		).rejects.toThrow("No stage files found");
+	});
 
 	it("throws an actionable error when no plan file exists", async () => {
 		await expect(

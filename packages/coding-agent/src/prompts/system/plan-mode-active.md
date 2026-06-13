@@ -16,9 +16,16 @@ Detail exists to remove the implementer's decisions — not to look thorough. A 
 
 ## Plan files
 
-Write a plan summary to `local://<slug>-plan.md` and detailed stage files to `local://stage-N.md` (N starts at 1).
+Write two kinds of files, both under the `local://` scheme:
 
-The plan summary is a short overview (1-3 paragraphs with a list of stage titles and their files) that the approval system reads when you call `resolve`. The stage files are self-contained execution units that a task agent can execute without re-exploring the codebase.
+1. **One plan summary** — `local://<slug>-plan.md`, using the same `<slug>` you pass to `resolve`. A short overview: 1-3 paragraphs plus a list of stage titles and their file paths. The approval system reads THIS file when you call `resolve`.
+2. **One file per stage** — named EXACTLY `local://stage-1.md`, `local://stage-2.md`, `local://stage-3.md`, … with N starting at 1 and contiguous.
+
+<critical>
+Stage filenames MUST match `local://stage-<N>.md` exactly. NO slug prefix or suffix (`local://fix-auth-stage-1.md` is WRONG), NO subdirectory (`local://stages/stage-1.md` is WRONG), NO other extension, and ALWAYS the `local://` scheme — a bare `stage-1.md` writes to the working directory, not the plan root, and is WRONG. Any other name or location is INVISIBLE to the approval system: those stages silently vanish and only the summary is shown at approval. Always pass the literal `local://stage-N.md` path to `{{writeToolName}}`/`{{editToolName}}`.
+</critical>
+
+The stage files are self-contained execution units that a task agent can execute without re-exploring the codebase.
 
 Stage files follow this structure:
 
@@ -55,7 +62,7 @@ Every question MUST change the plan or settle a load-bearing choice. Batch them.
 ## Workflow — iterative
 
 <procedure>
-1. **Explore** — use `find`/`search`/`read` to ground in the real code; hunt for existing functions, utilities, and conventions to reuse before proposing anything new.
+1. **Explore** — ground in the real code: use the Token Savior MCP tools first to find existing patterns, then `find`/`search`/`read`; hunt for existing functions, utilities, and conventions to reuse before proposing anything new.
 2. **Interview** — use `{{askToolName}}` for preferences and tradeoffs only; batch questions; never ask what exploration answers.
 3. **Update** — revise the plan with `{{editToolName}}` as you learn.
 4. **Calibrate** — large or unspecified task → multiple interview rounds; small or well-specified task → few or no questions.
@@ -64,10 +71,11 @@ Every question MUST change the plan or settle a load-bearing choice. Batch them.
 ## Workflow — parallel
 
 <procedure>
-1. **Understand** — focus on the request and the code behind it. Launch parallel `explore` subagents (via `task`) when scope spans areas; give each a distinct focus (existing implementations, related components, test patterns). Hunt for reusable code before proposing new.
-2. **Design** — draft one approach from what you found, weigh tradeoffs briefly, then commit. For large or cross-cutting work you MAY spawn a critique subagent to pressure-test it before committing.
-3. **Review** — read the files you intend to touch and confirm the approach holds against the real code; confirm the plan still answers the literal request; use `{{askToolName}}` to close any remaining preference questions.
-4. **Write** — write the plan per **Stage contents** below.
+1. **Understand** — parse the request precisely; list ambiguities and the assumptions you will proceed under.
+2. **Explore** — ground every fact in the real code. Use the Token Savior MCP tools first to locate existing patterns, then `read`/`search`/`find` to trace data flow, types, interfaces, contracts, and cross-component dependencies. Launch parallel `explore` subagents (via `task`) when scope spans areas; give each a distinct focus (existing implementations, related components, test patterns). Hunt for reusable code before proposing new.
+3. **Design** — draft one approach from what you found: the concrete changes (files, functions, types), their sequence and dependencies, the edge cases and error conditions, and the pitfalls. Weigh alternatives briefly, then commit. For large or cross-cutting work you MAY spawn a critique subagent to pressure-test it before committing.
+4. **Review** — read the files you intend to touch and confirm the approach holds against the real code; confirm the plan still answers the literal request; use `{{askToolName}}` to close any remaining preference questions.
+5. **Write** — write the plan per **Stage contents** below.
 </procedure>
 {{/if}}
 
@@ -81,6 +89,12 @@ Each stage file is a self-contained execution unit. The structure is always:
 - **Changes** — step-by-step instructions with exact signatures
 - **Edge Cases** — invariants to preserve, error conditions
 - **Verifying** — how to check correctness
+
+Decompose into independent, sequentially-ordered stages. Beyond "Stage 1 is foundation, each later stage adds one layer":
+- Every stage MUST be executable without re-reading the codebase: every file path, symbol, signature, and pattern the executor needs is named explicitly in the stage file. A stage file MUST NOT instruct the executor to explore or re-read to discover facts.
+- Collapse trivial stages: a pure rename or pure delete with no real logic folds into the nearest stage with substantive work.
+- A stage with 3+ sub-steps of its own is fine; a stage spanning 10+ files with diverse concerns probably needs splitting.
+- Write at least one stage file; for a trivial change a single stage is acceptable.
 
 <directives>
 - You NEVER include decision-free sections — Non-Goals, Out of Scope, Alternatives Considered, Risks/Mitigations, Future Work. A scope boundary that matters is one inline line at the exact temptation point, never a section.

@@ -2363,17 +2363,31 @@ export class InteractiveMode implements InteractiveModeContext {
 		let editedContent: string | undefined;
 		let feedback = "";
 
+		// When stage files exist, show the summary followed by every stage body so
+		// the operator reviews the actual execution units, not just the overview.
+		// Stages are display-only here: in-overlay deletes/annotations still feed the
+		// Refine loop via `feedback`, but edits are NOT mirrored to disk (that would
+		// splice stage bodies into the summary file) and approval uses the original
+		// summary content, never the combined overlay text.
+		const stageContents = details.stageContents;
+		const hasStages = (stageContents?.length ?? 0) > 0;
+		const reviewContent = hasStages
+			? [planContent.trimEnd(), ...stageContents!.map(stage => stage.content.trim())].join("\n\n")
+			: planContent;
+
 		const choice = await this.showPlanReview(
-			planContent,
+			reviewContent,
 			"Plan mode - next step",
 			["Approve and execute", "Approve and compact context", keepContextLabel, "Refine plan"],
 			{
 				helpText,
 				onExternalEditor: () => void this.#openPlanInExternalEditor(planFilePath),
-				onPlanEdited: content => {
-					editedContent = content;
-					void Bun.write(this.#resolvePlanFilePath(planFilePath), content);
-				},
+				onPlanEdited: hasStages
+					? undefined
+					: content => {
+							editedContent = content;
+							void Bun.write(this.#resolvePlanFilePath(planFilePath), content);
+						},
 				onFeedbackChange: value => {
 					feedback = value;
 				},
@@ -2387,7 +2401,11 @@ export class InteractiveMode implements InteractiveModeContext {
 				// Prefer in-overlay edits (already in memory) over a disk re-read; the
 				// `onPlanEdited` write is fire-and-forget, so reading the file here could
 				// race ahead of it.
-				const latestPlanContent = editedContent ?? (await this.#readPlanFile(planFilePath));
+				// With stages shown, the overlay holds summary+stages combined, so never
+				// treat in-overlay edits as the plan content — approve the summary as-is.
+				const latestPlanContent = hasStages
+					? planContent
+					: (editedContent ?? (await this.#readPlanFile(planFilePath)));
 				if (!latestPlanContent) {
 					this.showError(`Plan file not found at ${planFilePath}`);
 					return;

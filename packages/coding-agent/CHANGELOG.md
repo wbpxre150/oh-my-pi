@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Reworked the plan-mode active prompt (`prompts/system/plan-mode-active.md`) to force exact stage-file naming. Stage files MUST be `local://stage-1.md`, `local://stage-2.md`, … (N from 1, contiguous; no slug prefix/suffix, no subdirectory, always the `local://` scheme) because stage discovery matches `^stage-\d+\.md$` exactly and any other name or location is invisible to the approval system. Also folded the planning methodology into the existing sections: Understand → Explore → Design → Review → Write phases, Token Savior MCP-first exploration, and stage-decomposition guidelines (each stage executable without re-reading the codebase, collapse trivial stages, split sprawling ones).
+- Changed the plan-approval review popup to display the discovered stage files beneath the summary so the operator reviews the actual execution units, not just the overview. Stages are display-only: in-overlay deletes/annotations still feed the Refine loop, but edits are not mirrored to disk and approval uses the original summary content.
+
+### Fixed
+
+- Fixed plan approval silently falling back to a summary-only "Stage 1" when the agent wrote stage files under names or locations that did not match the strict `local://stage-N.md` pattern. `resolveApprovedPlan` now rejects with an actionable error naming the exact stage paths to write when stage discovery is supported but finds no stage files, so the agent self-corrects instead of approving a plan whose stages never reach the executor.
+
 ## [15.10.3] - 2026-06-08
 
 ### Added
