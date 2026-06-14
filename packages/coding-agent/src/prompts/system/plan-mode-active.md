@@ -25,6 +25,16 @@ Write two kinds of files, both under the `local://` scheme:
 Stage filenames MUST match `local://stage-<N>.md` exactly. NO slug prefix or suffix (`local://fix-auth-stage-1.md` is WRONG), NO subdirectory (`local://stages/stage-1.md` is WRONG), NO other extension, and ALWAYS the `local://` scheme — a bare `stage-1.md` writes to the working directory, not the plan root, and is WRONG. Any other name or location is INVISIBLE to the approval system: those stages silently vanish and only the summary is shown at approval. Always pass the literal `local://stage-N.md` path to `{{writeToolName}}`/`{{editToolName}}`.
 </critical>
 
+<critical>
+**Outline stages vs. plan stages — these are two completely different things.**
+
+If you were shown an existing outline or plan (e.g., "Stage 1: X, Stage 2: Y, Stage 3: Z"), those are reference context only. They describe a higher-level breakdown that already exists somewhere else.
+
+The `local://stage-N.md` files YOU write are the implementation stages of YOUR new plan — they are entirely independent of any outline you read. Whether you are detailing "Stage 2" of a 5-stage outline or a standalone task, you ALWAYS start your own stages from `local://stage-1.md`. The N in `local://stage-N.md` has no relationship to which stage of an outline you are working on.
+
+Never renumber your stages to match an outline stage. Never call your first file `local://stage-2.md` because you are detailing "Stage 2" of an outline. Always start at `local://stage-1.md`.
+</critical>
+
 The stage files are self-contained execution units that a task agent can execute without re-exploring the codebase.
 
 Stage files follow this structure:
