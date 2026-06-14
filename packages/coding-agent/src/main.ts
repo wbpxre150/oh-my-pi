@@ -54,6 +54,7 @@ import type { PrintModeOptions } from "./modes/print-mode";
 import { CURRENT_SETUP_VERSION } from "./modes/setup-version";
 import { initTheme, stopThemeWatcher } from "./modes/theme/theme";
 import type { SubmittedUserInput } from "./modes/types";
+import mcpToolsPrompt from "./prompts/system/mcp-tools.md" with { type: "text" };
 import {
 	type CreateAgentSessionOptions,
 	type CreateAgentSessionResult,
@@ -737,7 +738,9 @@ async function buildSessionOptions(
 	} else if (resolvedSystemPrompt) {
 		options.systemPrompt = defaultPrompt => [resolvedSystemPrompt, ...defaultPrompt.slice(1)];
 	} else if (resolvedAppendPrompt) {
-		options.systemPrompt = defaultPrompt => [...defaultPrompt, resolvedAppendPrompt];
+		options.systemPrompt = defaultPrompt => [...defaultPrompt, mcpToolsPrompt, resolvedAppendPrompt];
+	} else {
+		options.systemPrompt = defaultPrompt => [...defaultPrompt, mcpToolsPrompt];
 	}
 
 	// Tools

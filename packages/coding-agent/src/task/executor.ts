@@ -22,6 +22,7 @@ import type { LocalProtocolOptions } from "../internal-urls";
 import { callTool } from "../mcp/client";
 import type { MCPManager } from "../mcp/manager";
 import type { MnemopiSessionState } from "../mnemopi/state";
+import mcpToolsPrompt from "../prompts/system/mcp-tools.md" with { type: "text" };
 import subagentSystemPromptTemplate from "../prompts/system/subagent-system-prompt.md" with { type: "text" };
 import submitReminderTemplate from "../prompts/system/subagent-yield-reminder.md" with { type: "text" };
 import { AgentRegistry } from "../registry/agent-registry";
@@ -1298,9 +1299,15 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 							ircPeers: ircEnabled ? renderIrcPeerRoster(id) : "",
 							ircSelfId: ircEnabled ? id : "",
 						});
+						const extra = agent.mcpPrompt && !disableMCP ? [mcpToolsPrompt] : [];
 						return defaultPrompt.length === 0
-							? [subagentPrompt]
-							: [...defaultPrompt.slice(0, -1), subagentPrompt, defaultPrompt[defaultPrompt.length - 1]];
+							? [...extra, subagentPrompt]
+							: [
+									...defaultPrompt.slice(0, -1),
+									...extra,
+									subagentPrompt,
+									defaultPrompt[defaultPrompt.length - 1],
+								];
 					},
 					sessionManager,
 					hasUI: false,

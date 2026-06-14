@@ -8,6 +8,8 @@ To leave plan mode and implement: call `resolve` with `action: "apply"`, a `reas
 You NEVER ask the user to exit plan mode, and you NEVER request approval in prose or via `{{askToolName}}` — approval happens ONLY through `resolve`.
 </critical>
 
+{{{mcpTools}}}
+
 ## What a plan is
 
 The plan is an **execution spec**, not a design doc. After approval the planning conversation may be cleared or compacted, and a different engineer or a fresh agent implements straight from the file. The bar is absolute: **a competent implementer who never saw this conversation executes the file top to bottom and makes ZERO design decisions.** Every choice is already made; the file alone carries it.
@@ -100,8 +102,10 @@ Each stage file is a self-contained execution unit. The structure is always:
 - **Edge Cases** — invariants to preserve, error conditions
 - **Verifying** — how to check correctness
 
-Decompose into independent, sequentially-ordered stages. Beyond "Stage 1 is foundation, each later stage adds one layer":
+Decompose into sequentially-ordered stages where each stage explicitly builds on the verified output of the previous one. Beyond "Stage 1 is foundation, each later stage adds one layer":
 - Every stage MUST be executable without re-reading the codebase: every file path, symbol, signature, and pattern the executor needs is named explicitly in the stage file. A stage file MUST NOT instruct the executor to explore or re-read to discover facts.
+- Each stage MUST end with a **Verifying** section containing concrete, runnable commands or checks the executor runs to confirm the stage is complete. The executor MUST NOT proceed to the next stage until verification passes.
+- Each stage file MUST instruct the executor to run `git commit` with a descriptive message after all verification checks pass. The commit covers only the changes from that stage.
 - Collapse trivial stages: a pure rename or pure delete with no real logic folds into the nearest stage with substantive work.
 - A stage with 3+ sub-steps of its own is fine; a stage spanning 10+ files with diverse concerns probably needs splitting.
 - Write at least one stage file; for a trivial change a single stage is acceptable.

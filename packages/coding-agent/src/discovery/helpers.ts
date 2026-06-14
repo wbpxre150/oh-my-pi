@@ -215,6 +215,7 @@ export interface ParsedAgentFields {
 	readSummarize?: boolean;
 	blocking?: boolean;
 	disableMCP?: boolean;
+	mcpPrompt?: boolean;
 }
 
 /**
@@ -231,9 +232,14 @@ export function parseAgentFields(frontmatter: Record<string, unknown>): ParsedAg
 
 	let tools = parseArrayOrCSV(frontmatter.tools)?.map(tool => tool.toLowerCase());
 	let disableMCP = false;
+	let mcpPrompt = false;
 	if (tools?.includes("disablemcp")) {
 		tools = tools.filter(t => t !== "disablemcp");
 		disableMCP = true;
+	}
+	if (tools?.includes("mcpprompt")) {
+		tools = tools.filter(t => t !== "mcpprompt");
+		mcpPrompt = true;
 	}
 
 	// Subagents with explicit tool lists always need yield
@@ -276,7 +282,20 @@ export function parseAgentFields(frontmatter: Record<string, unknown>): ParsedAg
 	const autoloadSkills = parseArrayOrCSV(frontmatter.autoloadSkills)
 		?.map(s => s.trim())
 		.filter(Boolean);
-	return { name, description, tools, spawns, model, output, thinkingLevel, blocking, autoloadSkills, readSummarize, disableMCP};
+	return {
+		name,
+		description,
+		tools,
+		spawns,
+		model,
+		output,
+		thinkingLevel,
+		blocking,
+		autoloadSkills,
+		readSummarize,
+		disableMCP,
+		mcpPrompt,
+	};
 }
 
 async function globIf(

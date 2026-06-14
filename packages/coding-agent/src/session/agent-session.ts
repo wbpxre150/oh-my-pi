@@ -176,6 +176,7 @@ import autoContinuePrompt from "../prompts/system/auto-continue.md" with { type:
 import eagerTodoPrompt from "../prompts/system/eager-todo.md" with { type: "text" };
 import emptyStopRetryTemplate from "../prompts/system/empty-stop-retry.md" with { type: "text" };
 import ircIncomingTemplate from "../prompts/system/irc-incoming.md" with { type: "text" };
+import mcpToolsPrompt from "../prompts/system/mcp-tools.md" with { type: "text" };
 import planModeActivePrompt from "../prompts/system/plan-mode-active.md" with { type: "text" };
 import planModeReferencePrompt from "../prompts/system/plan-mode-reference.md" with { type: "text" };
 import planModeToolDecisionReminderPrompt from "../prompts/system/plan-mode-tool-decision-reminder.md" with {
@@ -4289,6 +4290,7 @@ export class AgentSession {
 			editToolName: "edit",
 			reentry: state.reentry ?? false,
 			iterative: state.workflow === "iterative",
+			mcpTools: mcpToolsPrompt,
 		});
 
 		return {

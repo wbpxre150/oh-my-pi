@@ -174,6 +174,7 @@ export interface AgentDefinition {
 	output?: unknown;
 	blocking?: boolean;
 	disableMCP?: boolean;
+	mcpPrompt?: boolean;
 	autoloadSkills?: string[];
 	/** When `false`, the agent's `read` tool returns verbatim file content instead of structural summaries. */
 	readSummarize?: boolean;
