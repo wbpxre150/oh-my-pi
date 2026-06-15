@@ -1,4 +1,6 @@
-import { $env, extractHttpStatusFromError } from "@oh-my-pi/pi-utils";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { $env, extractHttpStatusFromError, getAgentDir } from "@oh-my-pi/pi-utils";
 import OpenAI, { APIConnectionTimeoutError as OpenAIConnectionTimeoutError } from "openai";
 import type {
 	ChatCompletionAssistantMessageParam,
@@ -258,6 +260,7 @@ export interface OpenAICompletionsOptions extends StreamOptions {
 }
 
 type OpenAICompletionsParams = OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming & {
+	id_slot?: number;
 	top_k?: number;
 	min_p?: number;
 	repetition_penalty?: number;
@@ -1156,6 +1159,34 @@ async function createClient(
 	};
 }
 
+// Single-slot llama.cpp marker: written by local-inference-manager.ts when the
+// remote server runs with one slot. When present, requests to the matching
+// baseUrl get id_slot: 0 injected.
+let cachedSlotMode: { baseUrl: string } | null | undefined;
+let cachedSlotModeTimestamp = 0;
+const SLOT_MODE_TTL_MS = 1000;
+
+function readSlotModeFile(): { baseUrl: string } | null {
+	const now = Date.now();
+	if (cachedSlotModeTimestamp && now - cachedSlotModeTimestamp < SLOT_MODE_TTL_MS) {
+		return cachedSlotMode ?? null;
+	}
+	try {
+		const content = fs.readFileSync(path.join(getAgentDir(), ".local-inference-slot-mode"), "utf-8");
+		cachedSlotMode = JSON.parse(content) as { baseUrl: string };
+	} catch {
+		cachedSlotMode = null;
+	}
+	cachedSlotModeTimestamp = now;
+	return cachedSlotMode;
+}
+
+/** Reset the slot-mode cache. Used by tests. */
+export function clearSlotModeCache(): void {
+	cachedSlotMode = undefined;
+	cachedSlotModeTimestamp = 0;
+}
+
 function buildParams(
 	model: Model<"openai-completions">,
 	context: Context,
@@ -1395,6 +1426,16 @@ function buildParams(
 			// Fireworks rejects simultaneous DeepSeek-style `thinking` toggles and
 			// OpenAI-style `reasoning_effort`; the effort field carries the user's level.
 			delete params.thinking;
+		}
+	}
+
+	// When llama.cpp runs single-slot, id_slot must be 0 (default is -1).
+	// Auto-inject if the slot-mode marker is active for this server.
+	const slotMode = readSlotModeFile();
+	if (slotMode) {
+		const targetUrl = resolvedBaseUrl ?? model.baseUrl;
+		if (targetUrl && slotMode.baseUrl && targetUrl.startsWith(slotMode.baseUrl)) {
+			params.id_slot ??= 0;
 		}
 	}
 
