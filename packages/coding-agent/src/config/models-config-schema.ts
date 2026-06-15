@@ -162,6 +162,7 @@ const ProviderConfigSchema = z.object({
 	 * and `apiKey` must carry the gateway bearer.
 	 */
 	transport: z.literal("pi-native").optional(),
+	localInferenceControl: z.boolean().optional(),
 });
 
 const EquivalenceConfigSchema = z.object({
