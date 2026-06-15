@@ -39,12 +39,14 @@ import {
 } from "./types";
 // Import review tools for side effects (registers subagent tool handlers)
 import "../tools/review";
+import { LocalInferenceConfigFile } from "../config/local-inference-config";
 import type { LocalProtocolOptions } from "../internal-urls";
 import { loadOverallPlanReference } from "../plan-mode/plan-handoff";
 import { generateCommitMessage } from "../utils/commit-message-generator";
 import * as git from "../utils/git";
 import { discoverAgents, getAgent } from "./discovery";
 import { runSubprocess } from "./executor";
+import { ensureLocalInferenceSlots } from "./local-inference-manager";
 import { AgentOutputManager } from "./output-manager";
 import { mapWithConcurrencyLimit, Semaphore } from "./parallel";
 import { renderResult, renderCall as renderTaskCall } from "./render";
@@ -240,6 +242,47 @@ function validateTaskModeParams(simpleMode: TaskSimpleMode, params: TaskParams):
 	return "task.simple is set to independent, so the task tool does not accept `context` or `schema`. Put all required background and output expectations inside each task assignment or the selected agent definition.";
 }
 
+/**
+ * Returns the { baseUrl, providerKey } of the first provider in models.yml
+ * with localInferenceControl: true whose key appears as a prefix in any of
+ * the modelOverride patterns (e.g. "llama.cpp/qwen35..." -> provider "llama.cpp").
+ *
+ * Returns null if local inference control is not configured or does not apply.
+ */
+function resolveLocalInferenceProvider(
+	modelOverride: string | string[] | undefined,
+	modelRegistry: import("../config/model-registry").ModelRegistry,
+): { providerKey: string; baseUrl: string } | null {
+	const modelsConfig = modelRegistry.getModelsConfig?.();
+	if (!modelsConfig?.providers) return null;
+
+	// Find all providers with localInferenceControl: true
+	const controlled = Object.entries(modelsConfig.providers).filter(
+		([, cfg]) => cfg.localInferenceControl === true && cfg.baseUrl,
+	);
+	if (controlled.length === 0) return null;
+
+	// Normalize modelOverride to a list of patterns
+	const patterns: string[] = !modelOverride
+		? []
+		: Array.isArray(modelOverride)
+			? modelOverride
+			: modelOverride
+					.split(",")
+					.map(s => s.trim())
+					.filter(Boolean);
+
+	// Check if any pattern starts with a controlled provider key + "/"
+	for (const [providerKey, cfg] of controlled) {
+		const prefix = `${providerKey}/`;
+		if (patterns.some(p => p.startsWith(prefix))) {
+			return { providerKey, baseUrl: cfg.baseUrl! };
+		}
+	}
+
+	return null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Tool Class
 // ═══════════════════════════════════════════════════════════════════════════
@@ -416,7 +459,25 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		};
 
 		const maxConcurrency = this.session.settings.get("task.maxConcurrency");
-		const semaphore = new Semaphore(maxConcurrency);
+
+		let effectiveMaxConcurrencyAsync = maxConcurrency;
+		if (this.session.modelRegistry) {
+			const agentModelOverrides = this.session.settings.get("task.agentModelOverrides");
+			const settingsModelOverride = agentModelOverrides[params.agent];
+			const liProvider = resolveLocalInferenceProvider(settingsModelOverride, this.session.modelRegistry);
+			if (liProvider) {
+				const liResult = LocalInferenceConfigFile.tryLoad();
+				if (liResult.status === "ok") {
+					const slotLimit =
+						params.agent === "explore"
+							? liResult.value.agentConcurrency.explore
+							: liResult.value.agentConcurrency.task;
+					effectiveMaxConcurrencyAsync = Math.min(maxConcurrency, slotLimit);
+				}
+			}
+		}
+
+		const semaphore = new Semaphore(effectiveMaxConcurrencyAsync);
 
 		for (let i = 0; i < taskItems.length; i++) {
 			const taskItem = taskItems[i];
@@ -1123,10 +1184,29 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 				}
 			};
 
+			// Local inference slot management: if the subagent model is on a provider
+			// with localInferenceControl: true, restart the remote server with the right
+			// number of slots and cap our concurrency accordingly.
+			let effectiveMaxConcurrency = maxConcurrency;
+			if (this.session.modelRegistry) {
+				const liProvider = resolveLocalInferenceProvider(modelOverride, this.session.modelRegistry);
+				if (liProvider) {
+					const liResult = LocalInferenceConfigFile.tryLoad();
+					if (liResult.status === "ok") {
+						const liConfig = liResult.value;
+						const slotLimit =
+							agentName === "explore" ? liConfig.agentConcurrency.explore : liConfig.agentConcurrency.task;
+						effectiveMaxConcurrency = Math.min(maxConcurrency, slotLimit);
+						const desiredSlots = Math.min(tasksWithUniqueIds.length, effectiveMaxConcurrency);
+						await ensureLocalInferenceSlots(agentName, desiredSlots, liConfig, liProvider.baseUrl);
+					}
+				}
+			}
+
 			// Execute in parallel with concurrency limit
 			const { results: partialResults, aborted } = await mapWithConcurrencyLimit(
 				tasksWithUniqueIds,
-				maxConcurrency,
+				effectiveMaxConcurrency,
 				runTask,
 				signal,
 			);
