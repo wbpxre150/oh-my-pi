@@ -7,11 +7,13 @@
  * slots before subagents run.
  */
 
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getAgentDir, logger } from "@oh-my-pi/pi-utils";
 import type { LocalInferenceConfig } from "../config/local-inference-config";
 
 const STATE_FILE = path.join(getAgentDir(), ".local-inference-state.json");
+const SLOT_MODE_FILE = path.join(getAgentDir(), ".local-inference-slot-mode");
 
 interface LocalInferenceState {
 	currentSlots: number;
@@ -116,6 +118,14 @@ async function _ensureSlots(
 
 	const healthUrl = deriveHealthUrl(config, providerBaseUrl);
 	await pollHealth(healthUrl, config.healthCheck.timeoutMs, config.healthCheck.pollIntervalMs);
+
+	// When single-slot, write a marker file so the AI package can inject id_slot: 0.
+	// When multi-slot, delete it so id_slot reverts to the default (-1).
+	if (desiredSlots === 1) {
+		await Bun.write(SLOT_MODE_FILE, JSON.stringify({ baseUrl: providerBaseUrl }));
+	} else {
+		await fs.rm(SLOT_MODE_FILE, { force: true });
+	}
 
 	await writeState({ currentSlots: desiredSlots, providerBaseUrl });
 	logger.debug("local-inference: ready", { desiredSlots });
