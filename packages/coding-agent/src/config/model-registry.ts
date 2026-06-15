@@ -953,6 +953,16 @@ export class ModelRegistry {
 	}
 
 	/**
+	 * Get the parsed ModelsConfig from models.yml/models.json.
+	 * Returns null if the config file could not be loaded.
+	 */
+	getModelsConfig(): ModelsConfig | null {
+		const result = this.#modelsConfigFile.tryLoad();
+		if (result?.status === "ok") return result.value;
+		return null;
+	}
+
+	/**
 	 * Reload models from disk (built-in + custom from models.json).
 	 */
 	async refresh(strategy: ModelRefreshStrategy = "online-if-uncached"): Promise<void> {

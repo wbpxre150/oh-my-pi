@@ -8,7 +8,7 @@ To leave plan mode and implement: call `resolve` with `action: "apply"`, a `reas
 You NEVER ask the user to exit plan mode, and you NEVER request approval in prose or via `{{askToolName}}` — approval happens ONLY through `resolve`.
 </critical>
 
-{{{mcpTools}}}
+{{mcpTools}}
 
 ## What a plan is
 
