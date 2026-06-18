@@ -888,7 +888,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 
 		// Initialize progress tracking
 		const progressMap = new Map<number, AgentProgress>();
-
+		let activeSlotsOverride: number | undefined;
 		// Update callback
 		const emitProgress = () => {
 			const progress = Array.from(progressMap.values()).sort((a, b) => a.index - b.index);
@@ -1018,6 +1018,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						id: task.id,
 						taskDepth,
 						modelOverride,
+						activeSlots: activeSlotsOverride,
 						parentActiveModelPattern,
 						thinkingLevel: thinkingLevelOverride,
 						outputSchema: effectiveOutputSchema,
@@ -1076,6 +1077,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						id: task.id,
 						taskDepth,
 						modelOverride,
+						activeSlots: activeSlotsOverride,
 						parentActiveModelPattern,
 						thinkingLevel: thinkingLevelOverride,
 						outputSchema: effectiveOutputSchema,
@@ -1198,7 +1200,13 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 							agentName === "explore" ? liConfig.agentConcurrency.explore : liConfig.agentConcurrency.task;
 						effectiveMaxConcurrency = Math.min(maxConcurrency, slotLimit);
 						const desiredSlots = Math.min(tasksWithUniqueIds.length, effectiveMaxConcurrency);
-						await ensureLocalInferenceSlots(agentName, desiredSlots, liConfig, liProvider.baseUrl);
+						const activeSlots = await ensureLocalInferenceSlots(
+							agentName,
+							desiredSlots,
+							liConfig,
+							liProvider.baseUrl,
+						);
+						activeSlotsOverride = activeSlots;
 					}
 				}
 			}

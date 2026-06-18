@@ -163,6 +163,13 @@ export interface ExecutorOptions {
 	id: string;
 	modelOverride?: string | string[];
 	/**
+	 * Active local-inference slot count for the controlled provider. When > 1, the
+	 * subagent's context window is divided by this value so each parallel slot
+	 * gets an equal share. Omitted/1 leaves the model's context window unchanged.
+	 * See Stage 2 of the llama-server-fixes plan.
+	 */
+	activeSlots?: number;
+	/**
 	 * Active model selector of the parent session, used as an auth-aware fallback
 	 * if the resolved subagent model has no working credentials. See #985.
 	 */
@@ -608,6 +615,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		id,
 		worktree,
 		modelOverride,
+		activeSlots,
 		thinkingLevel,
 		outputSchema,
 		enableLsp,
@@ -1224,6 +1232,12 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					? `${model.provider}/${model.id}:${resolvedThinkingLevel}`
 					: `${model.provider}/${model.id}`;
 			}
+			// Local-inference context-window division: when multiple slots are active,
+			// each subagent gets an equal share of the model's context window.
+			const effectiveModel =
+				activeSlots && activeSlots > 1 && model && model.contextWindow > 0
+					? { ...model, contextWindow: Math.floor(model.contextWindow / activeSlots) }
+					: model;
 			const effectiveThinkingLevel = explicitThinkingLevel
 				? resolvedThinkingLevel
 				: (thinkingLevel ?? resolvedThinkingLevel);
@@ -1278,7 +1292,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					authStorage,
 					modelRegistry,
 					settings: subagentSettings,
-					model,
+					model: effectiveModel,
 					thinkingLevel: effectiveThinkingLevel,
 					toolNames,
 					outputSchema,
