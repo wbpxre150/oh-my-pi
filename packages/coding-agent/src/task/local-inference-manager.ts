@@ -18,6 +18,7 @@ const SLOT_MODE_FILE = path.join(getAgentDir(), ".local-inference-slot-mode");
 interface LocalInferenceState {
 	currentSlots: number;
 	providerBaseUrl: string;
+	pid?: number;
 }
 
 async function readState(): Promise<LocalInferenceState | null> {
@@ -32,18 +33,55 @@ async function writeState(state: LocalInferenceState): Promise<void> {
 	await Bun.write(STATE_FILE, JSON.stringify(state));
 }
 
-async function sshRestart(host: string, restartScript: string, slots: number): Promise<void> {
+/** Send SIGTERM to the remote server process. Exit code ignored (process may already be gone). */
+async function sshSigterm(host: string, pid: number): Promise<void> {
+	logger.debug("local-inference: sending SIGTERM to remote server", { host, pid });
+	const proc = Bun.spawn(["ssh", host, `kill ${pid}`], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	await proc.exited; // ignore exit code
+}
+
+/** Check if the remote server process is alive. Returns true if `kill -0` succeeds. */
+async function sshIsAlive(host: string, pid: number): Promise<boolean> {
+	const proc = Bun.spawn(["ssh", host, `kill -0 ${pid}`], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const exitCode = await proc.exited;
+	return exitCode === 0;
+}
+
+/**
+ * Start the remote server with the given slot count. The remote script prints
+ * the new server PID to stdout. Returns the parsed PID.
+ * - stdout parses to 0: the old server did not stop within the 5 s SIGTERM grace
+ *   window; throw "model is unavailable: server did not stop within 5 s after SIGTERM".
+ * - stdout parses to a non-zero integer: that is the new PID; return it.
+ * - stdout unparseable: throw a descriptive error.
+ */
+async function sshStartServer(host: string, restartScript: string, slots: number): Promise<number> {
 	const remoteCmd = `${restartScript} ${slots}`;
-	logger.debug("local-inference: restarting remote server", { host, slots, remoteCmd });
+	logger.debug("local-inference: starting remote server", { host, slots, remoteCmd });
 	const proc = Bun.spawn(["ssh", host, remoteCmd], {
 		stdout: "pipe",
 		stderr: "pipe",
 	});
 	const exitCode = await proc.exited;
+	const stdout = (await new Response(proc.stdout as ReadableStream).text()).trim();
 	if (exitCode !== 0) {
 		const stderr = await new Response(proc.stderr as ReadableStream).text();
-		throw new Error(`SSH restart failed (exit ${exitCode}): ${stderr.trim()}`);
+		throw new Error(`SSH start failed (exit ${exitCode}): ${stderr.trim()}`);
 	}
+	const pid = Number.parseInt(stdout, 10);
+	if (!Number.isFinite(pid)) {
+		throw new Error(`local-inference: unparseable server PID from remote script (stdout: ${JSON.stringify(stdout)})`);
+	}
+	if (pid === 0) {
+		throw new Error("model is unavailable: server did not stop within 5 s after SIGTERM");
+	}
+	return pid;
 }
 
 async function pollHealth(url: string, timeoutMs: number, pollIntervalMs: number): Promise<void> {
@@ -77,7 +115,7 @@ function deriveHealthUrl(config: LocalInferenceConfig, providerBaseUrl: string):
 }
 
 // Serializes all ensureSlots calls so concurrent TaskTool invocations don't race.
-let currentOperation: Promise<void> = Promise.resolve();
+let currentOperation: Promise<number> = Promise.resolve(0);
 
 /**
  * Ensures the remote llama.cpp server is running with `desiredSlots` parallel
@@ -93,7 +131,7 @@ export function ensureLocalInferenceSlots(
 	desiredSlots: number,
 	config: LocalInferenceConfig,
 	providerBaseUrl: string,
-): Promise<void> {
+): Promise<number> {
 	currentOperation = currentOperation.then(() => _ensureSlots(agentName, desiredSlots, config, providerBaseUrl));
 	return currentOperation;
 }
@@ -103,30 +141,54 @@ async function _ensureSlots(
 	desiredSlots: number,
 	config: LocalInferenceConfig,
 	providerBaseUrl: string,
-): Promise<void> {
+): Promise<number> {
 	const state = await readState();
 	const currentSlots = state?.currentSlots ?? null;
+	const savedPid = state?.pid ?? null;
 
-	if (!shouldRestart(agentName, desiredSlots, currentSlots)) {
+	let needsRestart = shouldRestart(agentName, desiredSlots, currentSlots);
+
+	// Even when the slot count matches, the server may have crashed between
+	// calls. If we have a saved pid, liveness-check it; a dead server forces a
+	// transparent re-restart.
+	if (!needsRestart && savedPid !== null) {
+		if (!config.ssh.host) throw new Error("local-inference: no SSH host configured in local-inference.yml");
+		const alive = await sshIsAlive(config.ssh.host, savedPid);
+		if (!alive) {
+			logger.debug("local-inference: server dead despite matching slot count; re-restarting", {
+				agentName,
+				currentSlots,
+			});
+			needsRestart = true;
+		}
+	}
+
+	if (!needsRestart) {
 		logger.debug("local-inference: no restart needed", { agentName, desiredSlots, currentSlots });
-		return;
+		return currentSlots!;
 	}
 
 	if (!config.ssh.host) throw new Error("local-inference: no SSH host configured in local-inference.yml");
 
-	await sshRestart(config.ssh.host, config.ssh.restartScript, desiredSlots);
+	// If a saved pid exists, SIGTERM the old server before starting a new one.
+	if (savedPid !== null) {
+		await sshSigterm(config.ssh.host, savedPid);
+	}
+
+	const newPid = await sshStartServer(config.ssh.host, config.ssh.restartScript, desiredSlots);
 
 	const healthUrl = deriveHealthUrl(config, providerBaseUrl);
 	await pollHealth(healthUrl, config.healthCheck.timeoutMs, config.healthCheck.pollIntervalMs);
 
-	// When single-slot, write a marker file so the AI package can inject id_slot: 0.
-	// When multi-slot, delete it so id_slot reverts to the default (-1).
+	// Slot-mode marker: single-slot writes the file (id_slot: 0 injection);
+	// multi-slot deletes it (id_slot defaults to -1). Unchanged from before.
 	if (desiredSlots === 1) {
 		await Bun.write(SLOT_MODE_FILE, JSON.stringify({ baseUrl: providerBaseUrl }));
 	} else {
 		await fs.rm(SLOT_MODE_FILE, { force: true });
 	}
 
-	await writeState({ currentSlots: desiredSlots, providerBaseUrl });
-	logger.debug("local-inference: ready", { desiredSlots });
+	await writeState({ currentSlots: desiredSlots, providerBaseUrl, pid: newPid });
+	logger.debug("local-inference: ready", { desiredSlots, newPid });
+	return desiredSlots;
 }
