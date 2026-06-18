@@ -753,6 +753,48 @@ const XML_LEAK_SENTINELS = ["<antml:invoke>", "<tool_call>"] as const;
  * When found, truncate the contaminated value to the clean prefix and
  * return a clean message + the contaminated tail.
  */
+/** Find the earliest XML-leak sentinel in any string leaf of an args tree. Returns path + offset. */
+function findSentinelInArgs(value: unknown): { path: (string | number)[]; pos: number } | undefined {
+	if (typeof value === "string") {
+		let pos = -1;
+		for (const sentinel of XML_LEAK_SENTINELS) {
+			const p = value.indexOf(sentinel);
+			if (p >= 0 && (pos < 0 || p < pos)) pos = p;
+		}
+		return pos >= 0 ? { path: [], pos } : undefined;
+	}
+	if (Array.isArray(value)) {
+		for (let i = 0; i < value.length; i++) {
+			const r = findSentinelInArgs(value[i]);
+			if (r) return { path: [i, ...r.path], pos: r.pos };
+		}
+	} else if (value !== null && typeof value === "object") {
+		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+			const r = findSentinelInArgs(v);
+			if (r) return { path: [k, ...r.path], pos: r.pos };
+		}
+	}
+	return undefined;
+}
+
+/** Rebuild `value` with the string at `path` truncated to `pos`. */
+function truncateArgAtPath(value: unknown, path: (string | number)[], pos: number): unknown {
+	if (path.length === 0) {
+		return typeof value === "string" ? value.slice(0, pos) : value;
+	}
+	const [head, ...rest] = path;
+	if (Array.isArray(value)) {
+		const copy = [...value];
+		copy[head as number] = truncateArgAtPath(copy[head as number], rest, pos);
+		return copy;
+	}
+	if (value !== null && typeof value === "object") {
+		const obj = value as Record<string, unknown>;
+		return { ...obj, [head as string]: truncateArgAtPath(obj[head as string], rest, pos) };
+	}
+	return value;
+}
+
 function detectXmlToolCallLeak(
 	message: AssistantMessage,
 ): { cleanMessage: AssistantMessage; contaminatedTail: string; toolCallId: string } | undefined {
@@ -762,15 +804,17 @@ function detectXmlToolCallLeak(
 		const args = block.arguments as Record<string, unknown> | undefined;
 		if (!args) continue;
 		for (const [key, value] of Object.entries(args)) {
-			if (typeof value !== "string") continue;
-			let pos = -1;
-			for (const sentinel of XML_LEAK_SENTINELS) {
-				const p = value.indexOf(sentinel);
-				if (p >= 0 && (pos < 0 || p < pos)) pos = p;
+			const found = findSentinelInArgs(value);
+			if (!found) continue;
+			const cleanValue = truncateArgAtPath(value, found.path, found.pos);
+			// Navigate to the contaminated leaf to extract the tail for the steering message.
+			let leaf: unknown = value;
+			for (const step of found.path) {
+				leaf = Array.isArray(leaf)
+					? (leaf as unknown[])[step as number]
+					: (leaf as Record<string, unknown>)[step as string];
 			}
-			if (pos < 0) continue;
-			const cleanValue = value.slice(0, pos);
-			const contaminatedTail = value.slice(pos);
+			const contaminatedTail = typeof leaf === "string" ? leaf.slice(found.pos) : "";
 			const cleanArgs = { ...args, [key]: cleanValue };
 			const cleanToolCall = { ...block, arguments: cleanArgs };
 			const cleanContent = [...message.content];
