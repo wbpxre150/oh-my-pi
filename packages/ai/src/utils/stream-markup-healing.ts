@@ -37,11 +37,13 @@ const DSML_PARAMETER_OPEN_RE = new RegExp(
 );
 const DSML_PARAMETER_CLOSE_RE = new RegExp(`</${DSML_PIPE}DSML${DSML_PIPE}parameter>`, "y");
 
-// Generic XML tool-call leak: <antml:invoke><function=NAME><parameter=NAME>...</parameter></function></antml:invoke>
-// Observed from local/remote-inference models (llama.cpp, Qwen, etc.) that drift
-// from structured JSON tool calls into Anthropic-internal chat template XML.
-const GENERIC_XML_SECTION_OPEN_RE = /<antml:invoke>/y;
-const GENERIC_XML_SECTION_CLOSE_RE = /<\/antml:invoke>/y;
+// Generic XML tool-call leak: two outer envelope formats observed from
+// local/remote-inference models (llama.cpp, Qwen, etc.) that drift from
+// structured JSON tool calls into chat-template XML. Both use identical
+// inner structure (<function=NAME><parameter=NAME>...</parameter></function>)
+// but differ in the outer wrapper:
+const GENERIC_XML_SECTION_OPEN_RE = /<(?:antml:invoke|tool_call)>/y;
+const GENERIC_XML_SECTION_CLOSE_RE = /<\/(?:antml:invoke|tool_call)>/y;
 const GENERIC_XML_INVOKE_OPEN_RE = /<function=([^>]*)>/y;
 const GENERIC_XML_INVOKE_CLOSE_RE = /<\/function>/y;
 const GENERIC_XML_PARAMETER_OPEN_RE = /<parameter=([^>]*)>/y;

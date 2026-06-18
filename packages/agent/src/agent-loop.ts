@@ -76,7 +76,7 @@ class XmlToolCallLeakInterruption extends Error {
 		readonly contaminatedTail: string,
 		readonly toolCallId: string,
 	) {
-		super(`XML tool call leak detected (<antml:invoke>) in tool call ${toolCallId}`);
+		super(`XML tool call leak detected in tool call ${toolCallId}`);
 		this.name = "XmlToolCallLeakInterruption";
 	}
 }
@@ -744,14 +744,14 @@ async function emitHarmonyAudit(
 	);
 }
 
-const XML_LEAK_SENTINEL = "<antml:invoke>";
+const XML_LEAK_SENTINELS = ["<antml:invoke>", "<tool_call>"] as const;
 
 /**
- * Scan a finalized assistant message's tool call arguments for the
- * `<antml:invoke>` sentinel that indicates the model drifted from
- * structured JSON into Anthropic-internal XML format inside a
- * parameter value. When found, truncate the contaminated value to
- * the clean prefix and return a clean message + the contaminated tail.
+ * Scan a finalized assistant message's tool call arguments for XML
+ * tool-call sentinels that indicate the model drifted from structured
+ * JSON into chat-template XML format inside a parameter value.
+ * When found, truncate the contaminated value to the clean prefix and
+ * return a clean message + the contaminated tail.
  */
 function detectXmlToolCallLeak(
 	message: AssistantMessage,
@@ -763,7 +763,11 @@ function detectXmlToolCallLeak(
 		if (!args) continue;
 		for (const [key, value] of Object.entries(args)) {
 			if (typeof value !== "string") continue;
-			const pos = value.indexOf(XML_LEAK_SENTINEL);
+			let pos = -1;
+			for (const sentinel of XML_LEAK_SENTINELS) {
+				const p = value.indexOf(sentinel);
+				if (p >= 0 && (pos < 0 || p < pos)) pos = p;
+			}
 			if (pos < 0) continue;
 			const cleanValue = value.slice(0, pos);
 			const contaminatedTail = value.slice(pos);
@@ -784,7 +788,7 @@ function detectXmlToolCallLeak(
 }
 
 const XML_LEAK_STEERING_TEXT =
-	"Your previous response embedded <antml:invoke> XML markup inside a tool call parameter value. " +
+	"Your previous response embedded XML tool-call markup inside a tool call parameter value. " +
 	"The clean prefix of the parameter was accepted and the tool call will execute with it. " +
 	"Please re-issue any additional tool calls you were trying to make using the structured tool call API format, not XML.";
 
