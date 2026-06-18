@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Subagents can now pre-activate a fixed list of Token Savior MCP tools via a new `mcp-preactivate` frontmatter field (short names, no `mcp__token_savior_recall_` prefix). The executor expands and activates them before the agent's first turn, so the model does not need to run the `search_tool_bm25` / `switch_project` activation ritual. The explore agent uses this to make `search_codebase`, `find_symbol`, `get_function_source`, `get_full_context`, and `get_dependencies` live from turn 1, and receives a new `mcp-tools-subagent.md` prompt that drops the ritual and just directs tool use.
+
 ### Changed
 
 - The plan-mode-approved synthetic prompt now injects a hard instruction to spawn subagents one at a time when the session's model is on a local-inference-controlled provider, so the model does not batch `task` calls that the server's single task slot would reject.

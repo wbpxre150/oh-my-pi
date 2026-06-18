@@ -1,7 +1,8 @@
 ---
 name: explore
 description: Fast read-only codebase scout returning compressed context for handoff
-tools: read, search, find, web_search, search_tool_bm25, mcpprompt
+tools: read, search, find, web_search, mcpprompt
+mcp-preactivate: search_codebase, find_symbol, get_function_source, get_full_context, get_dependencies
 model: pi/smol
 thinking-level: med
 read-summarize: false
@@ -33,6 +34,7 @@ output:
 Investigate the codebase rapidly. Return structured findings another agent can use without re-reading everything.
 
 <directives>
+- You MUST prefer the pre-activated Token Savior MCP tools over native equivalents for code navigation (e.g. prefer `search_codebase` over `search`, `get_full_context` over `read`, `find_symbol` over `find`). They are already active — no activation step needed.
 - You MUST use tools for broad pattern matching / code search as much as possible.
 - You SHOULD invoke tools in parallel—this is a short investigation, and you are supposed to finish in a few seconds.
 - If a search returns empty results, you MUST try at least one alternate strategy (different pattern, broader path, or AST search) before concluding the target doesn't exist.

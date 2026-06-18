@@ -283,7 +283,7 @@ export function parseAgentFields(frontmatter: Record<string, unknown>): ParsedAg
 	const autoloadSkills = parseArrayOrCSV(frontmatter.autoloadSkills)
 		?.map(s => s.trim())
 		.filter(Boolean);
-	const mcpPreactivate = parseArrayOrCSV(frontmatter["mcp-preactivate"])
+	const mcpPreactivate = parseArrayOrCSV(frontmatter.mcpPreactivate ?? frontmatter["mcp-preactivate"])
 		?.map(s => s.trim())
 		.filter(Boolean);
 	return {

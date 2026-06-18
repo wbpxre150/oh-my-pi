@@ -46,6 +46,21 @@ describe("task agent capability descriptions", () => {
 		}
 	});
 
+	it("pre-activates token-savior MCP tools for explore", () => {
+		const agents = loadBundledAgents();
+
+		expect(agentByName(agents, "explore").mcpPreactivate).toEqual([
+			"search_codebase",
+			"find_symbol",
+			"get_function_source",
+			"get_full_context",
+			"get_dependencies",
+		]);
+		for (const name of ["task", "quick_task", "plan", "reviewer", "oracle", "designer"]) {
+			expect(agentByName(agents, name).mcpPreactivate).toBeUndefined();
+		}
+	});
+
 	it("marks read-only agents in the task description and keeps full agents unmarked", async () => {
 		vi.spyOn(discoveryModule, "discoverAgents").mockResolvedValue({
 			agents: [
