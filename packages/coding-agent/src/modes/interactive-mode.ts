@@ -49,7 +49,9 @@ import {
 import chalk from "chalk";
 import { reset as resetCapabilities } from "../capability";
 import { KeybindingsManager } from "../config/keybindings";
+import { LocalInferenceConfigFile } from "../config/local-inference-config";
 import { MODEL_ROLES, type ModelRole } from "../config/model-registry";
+import { formatModelString } from "../config/model-resolver";
 import { isSettingsInitialized, onStatusLineSessionAccentChanged, Settings, settings } from "../config/settings";
 import { clearClaudePluginRootsCache } from "../discovery/helpers";
 import type {
@@ -82,6 +84,7 @@ import { getRecentSessions } from "../session/session-manager";
 import type { ShakeMode } from "../session/shake-types";
 import { formatDuration } from "../slash-commands/helpers/format";
 import { STTController, type SttState } from "../stt";
+import { resolveLocalInferenceProvider } from "../task/index";
 import type { LspStartupServerInfo } from "../tools";
 import { normalizeLocalScheme } from "../tools/path-utils";
 import { setAutoQaConsentHandler } from "../tools/report-tool-issue";
@@ -2030,6 +2033,18 @@ export class InteractiveMode implements InteractiveModeContext {
 			}
 		}
 
+		// When local inference control is active for this session's model, instruct the
+		// model to spawn subagents one at a time (the server's task slot budget is 1).
+		let localInferenceSlotLimit: number | undefined;
+		{
+			const liResult = LocalInferenceConfigFile.tryLoad();
+			if (liResult.status === "ok" && this.session.modelRegistry) {
+				const sessionModelString = this.session.model ? formatModelString(this.session.model) : undefined;
+				if (resolveLocalInferenceProvider(sessionModelString, this.session.modelRegistry)) {
+					localInferenceSlotLimit = liResult.value.agentConcurrency.task;
+				}
+			}
+		}
 		// markPlanReferenceSent fires only on the dispatch path so the synthetic
 		// plan-approved prompt is the source of the reference injection.
 		this.session.markPlanReferenceSent();
@@ -2038,6 +2053,7 @@ export class InteractiveMode implements InteractiveModeContext {
 				? options.stageContents.map(sc => ({ path: sc.path, index: stageFileIndex(sc.path) }))
 				: [{ path: options.planFilePath, index: 1 }],
 			contextPreserved: options.preserveContext === true,
+			localInferenceSlotLimit,
 		});
 		await this.session.prompt(planModePrompt, { synthetic: true });
 	}

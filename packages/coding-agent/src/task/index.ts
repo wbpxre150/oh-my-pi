@@ -249,7 +249,7 @@ function validateTaskModeParams(simpleMode: TaskSimpleMode, params: TaskParams):
  *
  * Returns null if local inference control is not configured or does not apply.
  */
-function resolveLocalInferenceProvider(
+export function resolveLocalInferenceProvider(
 	modelOverride: string | string[] | undefined,
 	modelRegistry: import("../config/model-registry").ModelRegistry,
 ): { providerKey: string; baseUrl: string } | null {
