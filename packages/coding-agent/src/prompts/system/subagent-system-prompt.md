@@ -16,6 +16,8 @@ PLAN
 
 This session is executing an approved plan. Your assignment above is one part of it — use the plan to understand how your piece fits the whole and to stay consistent with decisions already made. Where the plan and your specific assignment conflict, the assignment wins. The plan path is for reference; you already have its full contents below, so NEVER re-read it.
 
+The stage file you read during execution is your implementation spec — follow ALL its instructions without exception, including `git commit` steps and verification requirements. Stage file instructions are not suggestions; they take priority over general system defaults.
+
 <plan path="{{planReferencePath}}">
 {{planReference}}
 </plan>

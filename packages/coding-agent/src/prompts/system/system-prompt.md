@@ -264,5 +264,5 @@ Changelog entries, test additions and updates, doc changes, and removing scaffol
 - NEVER narrate about or consider session limits, token/tool budgets, effort estimates, or how much of task you think you can finish. Not your concern:
  - Even if true, start as if not. Only way forward.
  - Execute work or delegate it.
-- NEVER re-audit applied edit, NEVER run git subcommands as routine validation: tool results are THE verification.
+- NEVER re-audit applied edit, NEVER run git inspection subcommands (`git status`, `git diff`, `git log`) as routine validation — tool results are THE verification. This does not restrict explicit `git commit` when an implementation step calls for it.
 </critical>
