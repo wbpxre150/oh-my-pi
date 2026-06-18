@@ -23,6 +23,7 @@ import { callTool } from "../mcp/client";
 import type { MCPManager } from "../mcp/manager";
 import type { MnemopiSessionState } from "../mnemopi/state";
 import mcpToolsPrompt from "../prompts/system/mcp-tools.md" with { type: "text" };
+import mcpToolsSubagentPrompt from "../prompts/system/mcp-tools-subagent.md" with { type: "text" };
 import subagentSystemPromptTemplate from "../prompts/system/subagent-system-prompt.md" with { type: "text" };
 import submitReminderTemplate from "../prompts/system/subagent-yield-reminder.md" with { type: "text" };
 import { AgentRegistry } from "../registry/agent-registry";
@@ -1313,7 +1314,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 							ircPeers: ircEnabled ? renderIrcPeerRoster(id) : "",
 							ircSelfId: ircEnabled ? id : "",
 						});
-						const extra = agent.mcpPrompt && !disableMCP ? [mcpToolsPrompt] : [];
+						const extra = agent.mcpPrompt && !disableMCP ? [mcpToolsSubagentPrompt] : [];
 						return defaultPrompt.length === 0
 							? [...extra, subagentPrompt]
 							: [
@@ -1363,6 +1364,14 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			const filteredSubagentTools = subagentToolNames.filter(name => !parentOwnedToolNames.has(name));
 			if (filteredSubagentTools.length !== subagentToolNames.length) {
 				await awaitAbortable(session.setActiveToolsByName(filteredSubagentTools));
+			}
+
+			// Pre-activate configured MCP tools so they are live before the agent's first turn.
+			// Short names are expanded with the fixed token-savior-recall prefix; names not in
+			// the discoverable set are silently ignored by activateDiscoveredMCPTools.
+			if (agent.mcpPreactivate && agent.mcpPreactivate.length > 0 && !disableMCP) {
+				const expanded = agent.mcpPreactivate.map(name => `mcp__token_savior_recall_${name}`);
+				await awaitAbortable(session.activateDiscoveredMCPTools(expanded));
 			}
 
 			session.sessionManager.appendSessionInit({
