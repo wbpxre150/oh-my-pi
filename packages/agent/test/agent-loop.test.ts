@@ -126,6 +126,48 @@ describe("agentLoop with AgentMessage", () => {
 		expect(mock.calls).toHaveLength(2);
 	});
 
+	it("detects <antml:invoke> leak in tool call arguments, truncates and recovers", async () => {
+		const toolSchema = z.object({ content: z.string() });
+		const executed: string[] = [];
+		const tool: AgentTool<typeof toolSchema, { content: string }> = {
+			name: "write",
+			label: "Write",
+			description: "Write tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				executed.push(params.content);
+				return { content: [{ type: "text", text: "ok" }], details: { content: params.content } };
+			},
+		};
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [tool] };
+		const contaminatedContent =
+			"package com.example\n\nclass Foo\n<antml:invoke>\n<function=write>\n<parameter=content>more stuff</parameter>\n</function>\n</antml:invoke>";
+		const mock = createMockModel({
+			provider: "llamacpp",
+			responses: [
+				{
+					content: [
+						{ type: "toolCall", id: "tool-1", name: "write", arguments: { content: contaminatedContent } },
+					],
+				},
+				{ content: ["done"] },
+			],
+		});
+		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
+		const stream = agentLoop([createUserMessage("write a file")], context, config, undefined, mock.stream);
+		for await (const _event of stream) {
+			// drain
+		}
+
+		// The tool executed with the truncated (clean prefix) content.
+		expect(executed).toHaveLength(1);
+		expect(executed[0]).toBe("package com.example\n\nclass Foo\n");
+		expect(executed[0]).not.toContain("<antml:invoke>");
+
+		// Two model calls: first (leaky) -> recovery + tool exec, second (clean).
+		expect(mock.calls).toHaveLength(2);
+	});
+
 	it("emits an aborted assistant message when cancellation happens before provider events", async () => {
 		const context: AgentContext = {
 			systemPrompt: ["You are helpful."],

@@ -9,9 +9,11 @@ import {
 	type Context,
 	EventStream,
 	isZodSchema,
+	modelMayLeakGenericXmlToolCalls,
 	streamSimple,
 	type ToolResultMessage,
 	type TSchema,
+	type UserMessage,
 	validateToolArguments,
 	zodToWireSchema,
 } from "@oh-my-pi/pi-ai";
@@ -65,6 +67,17 @@ class HarmonyLeakInterruption extends Error {
 	) {
 		super(`Detected GPT-5 Harmony protocol leakage (${signalListLabel(detection.signals)})`);
 		this.name = "HarmonyLeakInterruption";
+	}
+}
+
+class XmlToolCallLeakInterruption extends Error {
+	constructor(
+		readonly cleanMessage: AssistantMessage,
+		readonly contaminatedTail: string,
+		readonly toolCallId: string,
+	) {
+		super(`XML tool call leak detected (<antml:invoke>) in tool call ${toolCallId}`);
+		this.name = "XmlToolCallLeakInterruption";
 	}
 }
 
@@ -499,6 +512,7 @@ async function runLoopBody(
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
 	let harmonyRetryAttempt = 0;
 	let harmonyTruncateResumeCount = 0;
+	let xmlLeakResumeCount = 0;
 
 	// Outer loop: continues when queued follow-up messages arrive after agent would stop
 	while (true) {
@@ -534,6 +548,7 @@ async function runLoopBody(
 			// Stream assistant response
 			let recovered: HarmonyRecoveredToolCall | undefined;
 			let message: AssistantMessage;
+			let xmlLeakSteering = false;
 			try {
 				message = await streamAssistantResponse(
 					currentContext,
@@ -548,29 +563,42 @@ async function runLoopBody(
 				);
 				harmonyRetryAttempt = 0;
 				harmonyTruncateResumeCount = 0;
+				xmlLeakResumeCount = 0;
 			} catch (err) {
-				if (!(err instanceof HarmonyLeakInterruption)) throw err;
-				if (err.recovered) {
-					if (harmonyTruncateResumeCount >= 2) {
-						await emitHarmonyAudit(config, err, "escalated", harmonyRetryAttempt);
+				if (err instanceof XmlToolCallLeakInterruption) {
+					if (xmlLeakResumeCount >= 2) {
 						throw new Error(
-							`GPT-5 Harmony leak recurred after truncate-and-resume recovery (${signalListLabel(err.detection.signals)}).`,
+							`XML tool call leak recurred after ${xmlLeakResumeCount} recovery attempts (tool call ${err.toolCallId}).`,
 						);
 					}
-					harmonyTruncateResumeCount++;
-					recovered = err.recovered;
-					message = recovered.message;
-					await emitHarmonyAudit(config, err, "truncate_resume", harmonyRetryAttempt);
+					xmlLeakResumeCount++;
+					message = err.cleanMessage;
+					xmlLeakSteering = true;
+				} else if (err instanceof HarmonyLeakInterruption) {
+					if (err.recovered) {
+						if (harmonyTruncateResumeCount >= 2) {
+							await emitHarmonyAudit(config, err, "escalated", harmonyRetryAttempt);
+							throw new Error(
+								`GPT-5 Harmony leak recurred after truncate-and-resume recovery (${signalListLabel(err.detection.signals)}).`,
+							);
+						}
+						harmonyTruncateResumeCount++;
+						recovered = err.recovered;
+						message = recovered.message;
+						await emitHarmonyAudit(config, err, "truncate_resume", harmonyRetryAttempt);
+					} else {
+						if (harmonyRetryAttempt >= 2) {
+							await emitHarmonyAudit(config, err, "escalated", harmonyRetryAttempt);
+							throw new Error(
+								`GPT-5 Harmony leak persisted after ${harmonyRetryAttempt} retries (${signalListLabel(err.detection.signals)}).`,
+							);
+						}
+						await emitHarmonyAudit(config, err, "abort_retry", harmonyRetryAttempt);
+						harmonyRetryAttempt++;
+						continue;
+					}
 				} else {
-					if (harmonyRetryAttempt >= 2) {
-						await emitHarmonyAudit(config, err, "escalated", harmonyRetryAttempt);
-						throw new Error(
-							`GPT-5 Harmony leak persisted after ${harmonyRetryAttempt} retries (${signalListLabel(err.detection.signals)}).`,
-						);
-					}
-					await emitHarmonyAudit(config, err, "abort_retry", harmonyRetryAttempt);
-					harmonyRetryAttempt++;
-					continue;
+					throw err;
 				}
 			}
 			newMessages.push(message);
@@ -668,6 +696,17 @@ async function runLoopBody(
 			const steering = steeringMessagesFromExecution ?? ((await config.getSteeringMessages?.()) || []);
 			const asides = resolveAsides(await config.getAsideMessages?.());
 			pendingMessages = asides.length > 0 ? [...steering, ...asides] : steering;
+			if (xmlLeakSteering) {
+				xmlLeakSteering = false;
+				const steeringMsg: UserMessage = {
+					role: "user",
+					content: XML_LEAK_STEERING_TEXT,
+					synthetic: true,
+					steering: true,
+					timestamp: Date.now(),
+				};
+				pendingMessages = [steeringMsg, ...pendingMessages];
+			}
 		}
 
 		// Agent would stop here. Drain non-interrupting asides + follow-up messages.
@@ -704,6 +743,50 @@ async function emitHarmonyAudit(
 		}),
 	);
 }
+
+const XML_LEAK_SENTINEL = "<antml:invoke>";
+
+/**
+ * Scan a finalized assistant message's tool call arguments for the
+ * `<antml:invoke>` sentinel that indicates the model drifted from
+ * structured JSON into Anthropic-internal XML format inside a
+ * parameter value. When found, truncate the contaminated value to
+ * the clean prefix and return a clean message + the contaminated tail.
+ */
+function detectXmlToolCallLeak(
+	message: AssistantMessage,
+): { cleanMessage: AssistantMessage; contaminatedTail: string; toolCallId: string } | undefined {
+	for (let i = 0; i < message.content.length; i++) {
+		const block = message.content[i];
+		if (block?.type !== "toolCall") continue;
+		const args = block.arguments as Record<string, unknown> | undefined;
+		if (!args) continue;
+		for (const [key, value] of Object.entries(args)) {
+			if (typeof value !== "string") continue;
+			const pos = value.indexOf(XML_LEAK_SENTINEL);
+			if (pos < 0) continue;
+			const cleanValue = value.slice(0, pos);
+			const contaminatedTail = value.slice(pos);
+			const cleanArgs = { ...args, [key]: cleanValue };
+			const cleanToolCall = { ...block, arguments: cleanArgs };
+			const cleanContent = [...message.content];
+			cleanContent[i] = cleanToolCall;
+			const cleanMessage: AssistantMessage = {
+				...message,
+				content: cleanContent,
+				stopReason: "toolUse",
+				errorMessage: undefined,
+			};
+			return { cleanMessage, contaminatedTail, toolCallId: block.id };
+		}
+	}
+	return undefined;
+}
+
+const XML_LEAK_STEERING_TEXT =
+	"Your previous response embedded <antml:invoke> XML markup inside a tool call parameter value. " +
+	"The clean prefix of the parameter was accepted and the tool call will execute with it. " +
+	"Please re-issue any additional tool calls you were trying to make using the structured tool call API format, not XML.";
 
 /**
  * Stream an assistant response from the LLM.
@@ -760,6 +843,7 @@ async function streamAssistantResponse(
 	const dynamicToolChoice = config.getToolChoice?.();
 	const dynamicReasoning = config.getReasoning?.();
 	const harmonyMitigationEnabled = isHarmonyLeakMitigationTarget(config.model);
+	const xmlLeakScanEnabled = modelMayLeakGenericXmlToolCalls(config.model.provider, config.model.id);
 	const harmonyAbortController = harmonyMitigationEnabled ? new AbortController() : undefined;
 	const maxToolCallsPerTurn = normalizeMaxToolCallsPerTurn(config.maxToolCallsPerTurn);
 	const toolCallCapAbortController = maxToolCallsPerTurn === undefined ? undefined : new AbortController();
@@ -996,6 +1080,20 @@ async function streamAssistantResponse(
 									throw new HarmonyLeakInterruption(detection, removed);
 								}
 							}
+							if (xmlLeakScanEnabled) {
+								const xmlLeak = detectXmlToolCallLeak(finalMessage);
+								if (xmlLeak) {
+									if (addedPartial) {
+										context.messages.pop();
+										addedPartial = false;
+									}
+									throw new XmlToolCallLeakInterruption(
+										xmlLeak.cleanMessage,
+										xmlLeak.contaminatedTail,
+										xmlLeak.toolCallId,
+									);
+								}
+							}
 							if (addedPartial) {
 								context.messages[context.messages.length - 1] = finalMessage;
 							} else {
@@ -1023,6 +1121,20 @@ async function streamAssistantResponse(
 						addedPartial = false;
 					}
 					throw new HarmonyLeakInterruption(detection, extractHarmonyRemoved(trailing, detection));
+				}
+			}
+			if (xmlLeakScanEnabled) {
+				const xmlLeak = detectXmlToolCallLeak(trailing);
+				if (xmlLeak) {
+					if (addedPartial) {
+						context.messages.pop();
+						addedPartial = false;
+					}
+					throw new XmlToolCallLeakInterruption(
+						xmlLeak.cleanMessage,
+						xmlLeak.contaminatedTail,
+						xmlLeak.toolCallId,
+					);
 				}
 			}
 			await finishChat(trailing);
