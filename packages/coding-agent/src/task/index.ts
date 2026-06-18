@@ -473,6 +473,36 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 							? liResult.value.agentConcurrency.explore
 							: liResult.value.agentConcurrency.task;
 					effectiveMaxConcurrencyAsync = Math.min(maxConcurrency, slotLimit);
+					// Hard guard: local-inference servers have a fixed slot budget. Reject
+					// over-limit batches before any subagent starts so the model corrects and
+					// retries, instead of silently serializing.
+					const taskCount = taskItems.length;
+					if (params.agent === "explore") {
+						const exploreLimit = liResult.value.agentConcurrency.explore;
+						if (taskCount > exploreLimit) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `explore agents are limited to ${exploreLimit} parallel slot(s) on this server. Resubmit with at most ${exploreLimit} task(s) per call.`,
+									},
+								],
+								details: { projectAgentsDir: null, results: [], totalDurationMs: 0 },
+							};
+						}
+					} else {
+						if (taskCount > 1) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: "task agents run serially on this server (1 slot). Submit exactly 1 task per call and chain subsequent calls for the remaining work.",
+									},
+								],
+								details: { projectAgentsDir: null, results: [], totalDurationMs: 0 },
+							};
+						}
+					}
 				}
 			}
 		}
@@ -1199,6 +1229,36 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						const slotLimit =
 							agentName === "explore" ? liConfig.agentConcurrency.explore : liConfig.agentConcurrency.task;
 						effectiveMaxConcurrency = Math.min(maxConcurrency, slotLimit);
+						// Hard guard: local-inference servers have a fixed slot budget. Reject
+						// over-limit batches before any subagent starts so the model corrects and
+						// retries, instead of silently serializing.
+						const taskCount = tasksWithUniqueIds.length;
+						if (agentName === "explore") {
+							const exploreLimit = liConfig.agentConcurrency.explore;
+							if (taskCount > exploreLimit) {
+								return {
+									content: [
+										{
+											type: "text",
+											text: `explore agents are limited to ${exploreLimit} parallel slot(s) on this server. Resubmit with at most ${exploreLimit} task(s) per call.`,
+										},
+									],
+									details: { projectAgentsDir, results: [], totalDurationMs: Date.now() - startTime },
+								};
+							}
+						} else {
+							if (taskCount > 1) {
+								return {
+									content: [
+										{
+											type: "text",
+											text: "task agents run serially on this server (1 slot). Submit exactly 1 task per call and chain subsequent calls for the remaining work.",
+										},
+									],
+									details: { projectAgentsDir, results: [], totalDurationMs: Date.now() - startTime },
+								};
+							}
+						}
 						const desiredSlots = Math.min(tasksWithUniqueIds.length, effectiveMaxConcurrency);
 						const activeSlots = await ensureLocalInferenceSlots(
 							agentName,
