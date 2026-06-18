@@ -37,6 +37,16 @@ const DSML_PARAMETER_OPEN_RE = new RegExp(
 );
 const DSML_PARAMETER_CLOSE_RE = new RegExp(`</${DSML_PIPE}DSML${DSML_PIPE}parameter>`, "y");
 
+// Generic XML tool-call leak: <antml:invoke><function=NAME><parameter=NAME>...</parameter></function></antml:invoke>
+// Observed from local/remote-inference models (llama.cpp, Qwen, etc.) that drift
+// from structured JSON tool calls into Anthropic-internal chat template XML.
+const GENERIC_XML_SECTION_OPEN_RE = /<antml:invoke>/y;
+const GENERIC_XML_SECTION_CLOSE_RE = /<\/antml:invoke>/y;
+const GENERIC_XML_INVOKE_OPEN_RE = /<function=([^>]*)>/y;
+const GENERIC_XML_INVOKE_CLOSE_RE = /<\/function>/y;
+const GENERIC_XML_PARAMETER_OPEN_RE = /<parameter=([^>]*)>/y;
+const GENERIC_XML_PARAMETER_CLOSE_RE = /<\/parameter>/y;
+
 const THINK_OPEN = "<think>";
 const THINK_CLOSE = "</think>";
 const THINKING_OPEN = "<thinking>";
@@ -59,7 +69,7 @@ export interface HealedToolCall {
 	readonly arguments: string;
 }
 
-export type StreamMarkupHealingPattern = "kimi" | "dsml" | "thinking";
+export type StreamMarkupHealingPattern = "kimi" | "dsml" | "thinking" | "generic-xml";
 
 export interface StreamMarkupHealingOptions {
 	readonly pattern: StreamMarkupHealingPattern;
@@ -145,6 +155,8 @@ export class StreamMarkupHealing {
 				return this.#consumeKimiEvents();
 			case "dsml":
 				return this.#consumeDsmlEvents();
+			case "generic-xml":
+				return this.#consumeGenericXmlEvents();
 			case "thinking":
 				return this.#consumePlainThinkingEvents();
 		}
@@ -186,6 +198,11 @@ export class StreamMarkupHealing {
 				return inTemplate || tail.length === 0 ? [] : [{ type: "text", text: tail }];
 			}
 			case "dsml": {
+				const state = this.#xmlState;
+				this.#xmlState = { kind: "idle" };
+				return state.kind !== "idle" || tail.length === 0 ? [] : [{ type: "text", text: tail }];
+			}
+			case "generic-xml": {
 				const state = this.#xmlState;
 				this.#xmlState = { kind: "idle" };
 				return state.kind !== "idle" || tail.length === 0 ? [] : [{ type: "text", text: tail }];
@@ -317,6 +334,22 @@ export class StreamMarkupHealing {
 			invokeClose: DSML_INVOKE_CLOSE_RE,
 			parameterOpen: DSML_PARAMETER_OPEN_RE,
 			parameterClose: DSML_PARAMETER_CLOSE_RE,
+			coerceStringByDefault: true,
+		});
+	}
+
+	#consumeGenericXmlEvents(): StreamMarkupHealingEvent[] {
+		return this.#consumeXmlToolEvents({
+			getState: () => this.#xmlState,
+			setState: state => {
+				this.#xmlState = state;
+			},
+			sectionOpen: GENERIC_XML_SECTION_OPEN_RE,
+			sectionClose: GENERIC_XML_SECTION_CLOSE_RE,
+			invokeOpen: GENERIC_XML_INVOKE_OPEN_RE,
+			invokeClose: GENERIC_XML_INVOKE_CLOSE_RE,
+			parameterOpen: GENERIC_XML_PARAMETER_OPEN_RE,
+			parameterClose: GENERIC_XML_PARAMETER_CLOSE_RE,
 			coerceStringByDefault: true,
 		});
 	}
@@ -600,6 +633,35 @@ export function modelMayLeakDsmlToolCalls(provider: string, modelId: string): bo
 	);
 }
 
+/**
+ * Providers that use their own native API formats and never leak
+ * Anthropic-internal XML tool-call templates. All other providers
+ * (llama.cpp, ollama, openrouter, custom providers, etc.) serve
+ * models that may drift from structured JSON into the `<antml:invoke>`
+ * format inherited from Anthropic training data.
+ */
+const HOSTED_NATIVE_API_PROVIDERS = new Set([
+	"openai",
+	"anthropic",
+	"google",
+	"google-vertex",
+	"google-gemini",
+	"google-gemini-cli",
+	"amazon-bedrock",
+	"azure-openai",
+	"azure-openai-responses",
+	"openai-codex",
+	"openai-responses",
+	"openai-codex-responses",
+	"anthropic-messages",
+	"anthropic-client",
+	"pi-native-client",
+]);
+
+export function modelMayLeakGenericXmlToolCalls(provider: string, _modelId: string): boolean {
+	return !HOSTED_NATIVE_API_PROVIDERS.has(provider);
+}
+
 /** Cheap model/provider gate for MiniMax plain thinking tag leaks. */
 export function modelMayLeakThinkingTags(provider: string, modelId: string): boolean {
 	return /minimax/i.test(provider) || /minimax/i.test(modelId);
@@ -613,5 +675,6 @@ export function getStreamMarkupHealingPattern(
 	if (options?.parseThinkingTags || modelMayLeakThinkingTags(provider, modelId)) return "thinking";
 	if (modelMayLeakKimiToolCalls(provider, modelId)) return "kimi";
 	if (modelMayLeakDsmlToolCalls(provider, modelId)) return "dsml";
+	if (modelMayLeakGenericXmlToolCalls(provider, modelId)) return "generic-xml";
 	return undefined;
 }

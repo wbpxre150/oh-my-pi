@@ -150,8 +150,18 @@ describe("StreamMarkupHealing pattern selection", () => {
 		);
 		expect(getStreamMarkupHealingPattern("opencode-zen", "minimax-m3")).toBe("thinking");
 		expect(getStreamMarkupHealingPattern("nanogpt", "deepseek/deepseek-v4-pro")).toBe("dsml");
-		expect(getStreamMarkupHealingPattern("ollama-cloud", "gpt-oss:120b")).toBeUndefined();
+		expect(getStreamMarkupHealingPattern("ollama-cloud", "gpt-oss:120b")).toBe("generic-xml");
 		expect(getStreamMarkupHealingPattern("openai", "deepseek-v4-pro")).toBeUndefined();
+	});
+	it("selects generic-xml for local/custom providers not matched by kimi/dsml/thinking", () => {
+		expect(getStreamMarkupHealingPattern("llamacpp", "qwen-3.6")).toBe("generic-xml");
+		expect(getStreamMarkupHealingPattern("ollama", "qwen2.5-coder")).toBe("generic-xml");
+		expect(getStreamMarkupHealingPattern("openrouter", "qwen/qwen-3-coder")).toBe("generic-xml");
+	});
+	it("returns undefined for well-known hosted native API providers", () => {
+		expect(getStreamMarkupHealingPattern("openai", "gpt-4o")).toBeUndefined();
+		expect(getStreamMarkupHealingPattern("anthropic", "claude-sonnet-4-5")).toBeUndefined();
+		expect(getStreamMarkupHealingPattern("google", "gemini-2.5-pro")).toBeUndefined();
 	});
 });
 
@@ -223,6 +233,89 @@ describe("StreamMarkupHealing DSML envelope pattern", () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0].name).toBe("bash");
 		expect(JSON.parse(calls[0].arguments)).toEqual({ cmd: "ls -la" });
+	});
+});
+
+describe("StreamMarkupHealing generic-xml pattern", () => {
+	const REPORTED_GENERIC_XML_LEAK =
+		"<antml:invoke>\n" +
+		"<function=write>\n" +
+		"<parameter=_i>Create UsbPermissionManager</parameter>\n" +
+		"<parameter=path>app/src/main/java/com/example/UsbPermissionManager.kt</parameter>\n" +
+		"<parameter=content>package com.example\n\nclass UsbPermissionManager</parameter>\n" +
+		"</function>\n" +
+		"</antml:invoke>";
+
+	it("parses the reported verbatim leak into a structured tool call", () => {
+		const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
+		expect(healing.feed(REPORTED_GENERIC_XML_LEAK)).toBe("");
+
+		const calls = healing.drainCompleted();
+		expect(calls).toHaveLength(1);
+		const call = calls[0];
+		expect(call.name).toBe("write");
+		expect(call.id).toMatch(/^call_[0-9a-f]+$/);
+
+		const args = JSON.parse(call.arguments) as Record<string, unknown>;
+		expect(args._i).toBe("Create UsbPermissionManager");
+		expect(args.path).toBe("app/src/main/java/com/example/UsbPermissionManager.kt");
+		expect(String(args.content)).toContain("package com.example");
+	});
+
+	it("reconstructs an envelope split across chunk boundaries", () => {
+		const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
+		let visible = "";
+		for (let i = 0; i < REPORTED_GENERIC_XML_LEAK.length; i += 7) {
+			visible += healing.feed(REPORTED_GENERIC_XML_LEAK.slice(i, i + 7));
+		}
+		visible += healing.flushPending();
+		expect(visible).toBe("");
+
+		const calls = healing.drainCompleted();
+		expect(calls).toHaveLength(1);
+		expect(calls[0].name).toBe("write");
+		expect(JSON.parse(calls[0].arguments)).toMatchObject({ _i: "Create UsbPermissionManager" });
+	});
+
+	it("preserves text/tool-call/text order for mixed chunks", () => {
+		const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
+		const events = healing.feedEvents(`Before\n${REPORTED_GENERIC_XML_LEAK}\nAfter`);
+		expect(events.map(event => event.type)).toEqual(["text", "toolCall", "text"]);
+
+		const [before, call, after] = events;
+		if (before?.type !== "text" || call?.type !== "toolCall" || after?.type !== "text") {
+			throw new Error("generic-xml healing emitted unexpected event order");
+		}
+		expect(before.text).toBe("Before\n");
+		expect(call.call.name).toBe("write");
+		expect(after.text).toBe("\nAfter");
+	});
+
+	it("drops partial calls when the stream ends mid-envelope", () => {
+		const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
+		const truncated = REPORTED_GENERIC_XML_LEAK.slice(0, REPORTED_GENERIC_XML_LEAK.length - 30);
+		expect(healing.feed(truncated)).toBe("");
+		expect(healing.flushPending()).toBe("");
+		expect(healing.drainCompleted()).toHaveLength(0);
+	});
+
+	it("handles multiple tool calls inside a single section", () => {
+		const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
+		const leak =
+			"<antml:invoke>" +
+			"<function=read>" +
+			"<parameter=path>a.ts</parameter>" +
+			"</function>" +
+			"<function=read>" +
+			"<parameter=path>b.ts</parameter>" +
+			"</function>" +
+			"</antml:invoke>";
+		healing.feed(leak);
+		const calls = healing.drainCompleted();
+		expect(calls).toHaveLength(2);
+		expect(calls.map(c => c.name)).toEqual(["read", "read"]);
+		expect(calls.map(c => JSON.parse(c.arguments))).toEqual([{ path: "a.ts" }, { path: "b.ts" }]);
+		expect(calls[0].id).not.toBe(calls[1].id);
 	});
 });
 
