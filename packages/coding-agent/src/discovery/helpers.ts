@@ -216,6 +216,7 @@ export interface ParsedAgentFields {
 	blocking?: boolean;
 	disableMCP?: boolean;
 	mcpPrompt?: boolean;
+	mcpPreactivate?: string[];
 }
 
 /**
@@ -282,6 +283,9 @@ export function parseAgentFields(frontmatter: Record<string, unknown>): ParsedAg
 	const autoloadSkills = parseArrayOrCSV(frontmatter.autoloadSkills)
 		?.map(s => s.trim())
 		.filter(Boolean);
+	const mcpPreactivate = parseArrayOrCSV(frontmatter["mcp-preactivate"])
+		?.map(s => s.trim())
+		.filter(Boolean);
 	return {
 		name,
 		description,
@@ -295,6 +299,7 @@ export function parseAgentFields(frontmatter: Record<string, unknown>): ParsedAg
 		readSummarize,
 		disableMCP,
 		mcpPrompt,
+		mcpPreactivate,
 	};
 }
 

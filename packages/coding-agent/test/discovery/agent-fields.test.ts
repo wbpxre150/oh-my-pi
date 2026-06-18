@@ -132,4 +132,36 @@ describe("parseAgentFields", () => {
 	test("returns undefined readSummarize when field absent", () => {
 		expect(parseAgentFields({ name: "explore", description: "desc" })?.readSummarize).toBeUndefined();
 	});
+
+	test("parses mcp-preactivate from CSV string", () => {
+		const fields = parseAgentFields({
+			name: "explore",
+			description: "desc",
+			"mcp-preactivate": "search_codebase, find_symbol, get_function_source",
+		});
+		expect(fields?.mcpPreactivate).toEqual([
+			"search_codebase",
+			"find_symbol",
+			"get_function_source",
+		]);
+	});
+
+	test("parses mcp-preactivate from array frontmatter", () => {
+		const fields = parseAgentFields({
+			name: "explore",
+			description: "desc",
+			"mcp-preactivate": ["search_codebase", "find_symbol"],
+		});
+		expect(fields?.mcpPreactivate).toEqual(["search_codebase", "find_symbol"]);
+	});
+
+	test("returns undefined mcpPreactivate when field absent", () => {
+		expect(parseAgentFields({ name: "explore", description: "desc" })?.mcpPreactivate).toBeUndefined();
+	});
+
+	test("returns undefined mcpPreactivate for empty array", () => {
+		expect(
+			parseAgentFields({ name: "explore", description: "desc", "mcp-preactivate": [] })?.mcpPreactivate,
+		).toBeUndefined();
+	});
 });
