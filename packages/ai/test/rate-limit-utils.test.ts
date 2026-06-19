@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { calculateRateLimitBackoffMs, isUsageLimitError, parseRateLimitReason } from "@oh-my-pi/pi-ai/rate-limit-utils";
+import { calculateRateLimitBackoffMs, isParseError, isUsageLimitError, parseRateLimitReason } from "@oh-my-pi/pi-ai/rate-limit-utils";
 
 describe("parseRateLimitReason", () => {
 	it("classifies Google Quota exceeded as QUOTA_EXHAUSTED", () => {
@@ -72,5 +72,39 @@ describe("calculateRateLimitBackoffMs", () => {
 			expect(ms).toBeGreaterThanOrEqual(45_000);
 			expect(ms).toBeLessThanOrEqual(75_000);
 		}
+	});
+});
+
+describe("isParseError", () => {
+	it("detects llama.cpp 'Failed to parse input at pos' errors", () => {
+		expect(isParseError("Failed to parse input at pos 3708: <function=bash>")).toBe(true);
+	});
+
+	it("detects 'Failed to parse tool call' errors", () => {
+		expect(isParseError("Failed to parse tool call: unexpected token at position 42")).toBe(true);
+	});
+
+	it("detects 'invalid tool call' errors", () => {
+		expect(isParseError("invalid tool call: missing function name")).toBe(true);
+	});
+
+	it("detects grammar parse failures", () => {
+		expect(isParseError("GBNF grammar parse failed: unexpected token")).toBe(true);
+	});
+
+	it("returns false for transient transport errors", () => {
+		expect(isParseError("Connection timed out")).toBe(false);
+	});
+
+	it("returns false for rate limit errors", () => {
+		expect(isParseError("Rate limit exceeded")).toBe(false);
+	});
+
+	it("returns false for context overflow errors", () => {
+		expect(isParseError("Context length exceeded maximum")).toBe(false);
+	});
+
+	it("returns false for generic server errors", () => {
+		expect(isParseError("Internal server error (500)")).toBe(false);
 	});
 });

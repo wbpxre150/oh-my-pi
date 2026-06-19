@@ -89,3 +89,17 @@ const USAGE_LIMIT_PATTERN =
 export function isUsageLimitError(errorMessage: string): boolean {
 	return USAGE_LIMIT_PATTERN.test(errorMessage) || ACCOUNT_RATE_LIMIT_PATTERN.test(errorMessage);
 }
+
+/**
+ * Detect server-side tool-call parse errors where the inference endpoint
+ * could not parse the model's generated output (e.g. the model emitted raw
+ * XML tool-call markers instead of the structured format). These are
+ * retryable: the model can produce valid syntax on the next attempt when
+ * given a recovery reminder.
+ */
+const PARSE_ERROR_PATTERN =
+	/failed to parse (?:input )?(?:at pos|tool.?call)|(?:invalid|malformed|unparseable) tool.?call|grammar.*(?:parse|fail)/i;
+
+export function isParseError(errorMessage: string): boolean {
+	return PARSE_ERROR_PATTERN.test(errorMessage);
+}
