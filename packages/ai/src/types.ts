@@ -936,6 +936,13 @@ export interface Model<TApi extends Api = any> {
 	 * dispatch is redirected.
 	 */
 	transport?: "pi-native";
+	/**
+	 * True when this model's provider is marked `localInferenceControl: true`
+	 * in models.yml. Gates local-only behavior in the streaming/agent layers
+	 * (generic-xml tool-call-leak healing and the XML-leak backstop). Undefined
+	 * for hosted/cloud providers.
+	 */
+	localInferenceControl?: boolean;
 	/** Hint that websocket transport should be preferred when supported by the provider implementation. */
 	preferWebsockets?: boolean;
 	/** Preferred model to switch to when context promotion is triggered (model id or provider/id). */

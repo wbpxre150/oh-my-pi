@@ -327,6 +327,7 @@ interface ProviderOverride {
 	authHeader?: boolean;
 	compat?: Model<Api>["compat"];
 	transport?: Model<Api>["transport"];
+	localInferenceControl?: boolean;
 }
 
 /**
@@ -348,13 +349,14 @@ interface ProviderOverride {
 export function mergeDiscoveredModel<TApi extends Api>(
 	model: Model<TApi>,
 	existing: Model<Api> | undefined,
-	providerOverride?: Pick<ProviderOverride, "baseUrl" | "headers" | "transport">,
+	providerOverride?: Pick<ProviderOverride, "baseUrl" | "headers" | "transport" | "localInferenceControl">,
 ): Model<TApi> {
 	if (existing) {
 		return {
 			...model,
 			baseUrl: providerOverride?.baseUrl ?? model.baseUrl ?? existing.baseUrl,
 			headers: existing.headers ? { ...existing.headers, ...model.headers } : model.headers,
+			...(providerOverride?.localInferenceControl ? { localInferenceControl: true } : {}),
 		};
 	}
 	if (providerOverride) {
@@ -363,6 +365,7 @@ export function mergeDiscoveredModel<TApi extends Api>(
 			baseUrl: providerOverride.baseUrl ?? model.baseUrl,
 			headers: providerOverride.headers ? { ...model.headers, ...providerOverride.headers } : model.headers,
 			...(providerOverride.transport !== undefined ? { transport: providerOverride.transport } : {}),
+			...(providerOverride.localInferenceControl ? { localInferenceControl: true } : {}),
 		};
 	}
 	return model;
@@ -1095,7 +1098,7 @@ export class ModelRegistry {
 		// Merge runtime extension models so they survive refresh() cycles
 		const combined = this.#mergeCustomModels(withConfigModels, this.#runtimeModelOverlays);
 		const withModelOverrides = this.#applyModelOverrides(combined, this.#modelOverrides);
-		this.#models = this.#applyRuntimeProviderOverrides(withModelOverrides);
+		this.#models = this.#applyProviderLocalInferenceFlags(this.#applyRuntimeProviderOverrides(withModelOverrides));
 		this.#rebuildCanonicalIndex();
 		this.#lastStaticLoadMtime = this.#modelsConfigFile.getMtimeMs();
 	}
@@ -1357,7 +1360,8 @@ export class ModelRegistry {
 				providerConfig.authHeader !== undefined ||
 				providerConfig.compat ||
 				providerConfig.disableStrictTools ||
-				providerConfig.transport
+				providerConfig.transport ||
+				providerConfig.localInferenceControl
 			) {
 				const disableStrictCompat = providerConfig.disableStrictTools ? { disableStrictTools: true } : undefined;
 				overrides.set(providerName, {
@@ -1367,6 +1371,7 @@ export class ModelRegistry {
 					authHeader: providerConfig.authHeader,
 					compat: mergeCompat(providerConfig.compat, disableStrictCompat),
 					transport: providerConfig.transport,
+					localInferenceControl: providerConfig.localInferenceControl === true ? true : undefined,
 				});
 			}
 
@@ -1467,7 +1472,7 @@ export class ModelRegistry {
 		// Merge runtime extension models so they survive online discovery completion
 		const combined = this.#mergeCustomModels(withConfigModels, this.#runtimeModelOverlays);
 		const withModelOverrides = this.#applyModelOverrides(combined, this.#modelOverrides);
-		this.#models = this.#applyRuntimeProviderOverrides(withModelOverrides);
+		this.#models = this.#applyProviderLocalInferenceFlags(this.#applyRuntimeProviderOverrides(withModelOverrides));
 		this.#rebuildCanonicalIndex();
 	}
 
@@ -2075,11 +2080,15 @@ export class ModelRegistry {
 			headers: override.headers ? { ...(baseOverride?.headers ?? {}), ...override.headers } : baseOverride?.headers,
 			compat: override.compat ? mergeCompat(baseOverride?.compat, override.compat) : baseOverride?.compat,
 			transport: override.transport ?? baseOverride?.transport,
+			localInferenceControl: override.localInferenceControl ?? baseOverride?.localInferenceControl,
 		};
 	}
 	#applyProviderTransportOverride<T extends { baseUrl?: string; headers?: Record<string, string> }>(
 		entry: T,
-		override: Pick<ProviderOverride, "baseUrl" | "headers" | "authHeader" | "apiKey" | "transport">,
+		override: Pick<
+			ProviderOverride,
+			"baseUrl" | "headers" | "authHeader" | "apiKey" | "transport" | "localInferenceControl"
+		>,
 	): T {
 		const headers = mergeAuthHeader(
 			override.headers ? { ...entry.headers, ...override.headers } : entry.headers,
@@ -2093,6 +2102,7 @@ export class ModelRegistry {
 			// Preserve the model's existing transport when the override omits one;
 			// providers without a `transport` field keep the default per-API dispatch.
 			...(override.transport !== undefined ? { transport: override.transport } : {}),
+			...(override.localInferenceControl ? { localInferenceControl: true } : {}),
 		};
 	}
 	#applyRuntimeProviderOverrides(models: Model<Api>[]): Model<Api>[] {
@@ -2101,6 +2111,20 @@ export class ModelRegistry {
 			const override = this.#runtimeProviderOverrides.get(model.provider);
 			if (!override) return model;
 			return this.#applyProviderTransportOverride(model, override);
+		});
+	}
+	/**
+	 * Stamp `localInferenceControl: true` on models whose providers are marked
+	 * in models.yml. Built-in models get the flag via #applyProviderTransportOverride;
+	 * custom models from models.json are parsed into overlays that bypass that path,
+	 * so this catch-all stamps the flag on the final merged list.
+	 */
+	#applyProviderLocalInferenceFlags(models: Model<Api>[]): Model<Api>[] {
+		if (this.#providerOverrides.size === 0) return models;
+		return models.map(model => {
+			const override = this.#providerOverrides.get(model.provider);
+			if (!override?.localInferenceControl) return model;
+			return { ...model, localInferenceControl: true };
 		});
 	}
 	#applyModelOverrides(models: Model<Api>[], overrides: Map<string, Map<string, ModelOverride>>): Model<Api>[] {
