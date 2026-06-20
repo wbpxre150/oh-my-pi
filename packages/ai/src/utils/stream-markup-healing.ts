@@ -672,11 +672,11 @@ export function modelMayLeakThinkingTags(provider: string, modelId: string): boo
 export function getStreamMarkupHealingPattern(
 	provider: string,
 	modelId: string,
-	options?: { readonly parseThinkingTags?: boolean },
+	options?: { readonly parseThinkingTags?: boolean; readonly localInferenceControl?: boolean },
 ): StreamMarkupHealingPattern | undefined {
 	if (options?.parseThinkingTags || modelMayLeakThinkingTags(provider, modelId)) return "thinking";
 	if (modelMayLeakKimiToolCalls(provider, modelId)) return "kimi";
 	if (modelMayLeakDsmlToolCalls(provider, modelId)) return "dsml";
-	if (modelMayLeakGenericXmlToolCalls(provider, modelId)) return "generic-xml";
+	if (options?.localInferenceControl && modelMayLeakGenericXmlToolCalls(provider, modelId)) return "generic-xml";
 	return undefined;
 }

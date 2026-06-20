@@ -379,7 +379,9 @@ export const streamOllama: StreamFunction<"ollama-chat"> = (
 		let activeThinkingIndex: number | undefined;
 		let activeTextIndex: number | undefined;
 		const activeToolIndices = new Set<number>();
-		const streamMarkupHealingPattern = getStreamMarkupHealingPattern(model.provider, model.id);
+		const streamMarkupHealingPattern = getStreamMarkupHealingPattern(model.provider, model.id, {
+			localInferenceControl: model.localInferenceControl === true,
+		});
 		const streamMarkupHealing = streamMarkupHealingPattern
 			? new StreamMarkupHealing({ pattern: streamMarkupHealingPattern })
 			: undefined;

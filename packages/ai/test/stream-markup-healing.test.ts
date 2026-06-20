@@ -150,18 +150,32 @@ describe("StreamMarkupHealing pattern selection", () => {
 		);
 		expect(getStreamMarkupHealingPattern("opencode-zen", "minimax-m3")).toBe("thinking");
 		expect(getStreamMarkupHealingPattern("nanogpt", "deepseek/deepseek-v4-pro")).toBe("dsml");
-		expect(getStreamMarkupHealingPattern("ollama-cloud", "gpt-oss:120b")).toBe("generic-xml");
 		expect(getStreamMarkupHealingPattern("openai", "deepseek-v4-pro")).toBeUndefined();
 	});
-	it("selects generic-xml for local/custom providers not matched by kimi/dsml/thinking", () => {
-		expect(getStreamMarkupHealingPattern("llamacpp", "qwen-3.6")).toBe("generic-xml");
-		expect(getStreamMarkupHealingPattern("ollama", "qwen2.5-coder")).toBe("generic-xml");
-		expect(getStreamMarkupHealingPattern("openrouter", "qwen/qwen-3-coder")).toBe("generic-xml");
+	it("selects generic-xml only for local-inference providers not matched by kimi/dsml/thinking", () => {
+		expect(getStreamMarkupHealingPattern("llamacpp", "qwen-3.6", { localInferenceControl: true })).toBe(
+			"generic-xml",
+		);
+		expect(getStreamMarkupHealingPattern("ollama", "qwen2.5-coder", { localInferenceControl: true })).toBe(
+			"generic-xml",
+		);
+		expect(getStreamMarkupHealingPattern("ollama-cloud", "gpt-oss:120b", { localInferenceControl: true })).toBe(
+			"generic-xml",
+		);
+	});
+	it("does not select generic-xml for cloud providers even when they would otherwise match", () => {
+		expect(getStreamMarkupHealingPattern("openrouter", "qwen/qwen-3-coder")).toBeUndefined();
+		expect(getStreamMarkupHealingPattern("llamacpp", "qwen-3.6")).toBeUndefined();
+		expect(getStreamMarkupHealingPattern("ollama", "qwen2.5-coder")).toBeUndefined();
+		expect(getStreamMarkupHealingPattern("ollama-cloud", "gpt-oss:120b")).toBeUndefined();
 	});
 	it("returns undefined for well-known hosted native API providers", () => {
 		expect(getStreamMarkupHealingPattern("openai", "gpt-4o")).toBeUndefined();
 		expect(getStreamMarkupHealingPattern("anthropic", "claude-sonnet-4-5")).toBeUndefined();
 		expect(getStreamMarkupHealingPattern("google", "gemini-2.5-pro")).toBeUndefined();
+	});
+	it("does not select generic-xml for a hosted native provider even with localInferenceControl", () => {
+		expect(getStreamMarkupHealingPattern("openai", "gpt-4o", { localInferenceControl: true })).toBeUndefined();
 	});
 });
 

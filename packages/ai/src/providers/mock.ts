@@ -143,6 +143,8 @@ export interface MockModelOptions {
 	maxTokens?: number;
 	/** Whether the model claims to support reasoning. Defaults to false. */
 	reasoning?: boolean;
+	/** Whether the provider has localInferenceControl set. Defaults to false. */
+	localInferenceControl?: boolean;
 }
 
 const ZERO_COST: Model["cost"] = {
@@ -168,6 +170,7 @@ export class MockModel implements Model<MockApi> {
 	readonly cost: Model["cost"];
 	readonly contextWindow: number;
 	readonly maxTokens: number;
+	readonly localInferenceControl: boolean;
 
 	/** Recorded calls in invocation order. */
 	readonly calls: MockCall[] = [];
@@ -186,6 +189,7 @@ export class MockModel implements Model<MockApi> {
 		this.cost = options.cost ?? ZERO_COST;
 		this.contextWindow = options.contextWindow ?? 200_000;
 		this.maxTokens = options.maxTokens ?? 32_768;
+		this.localInferenceControl = options.localInferenceControl ?? false;
 		this.iterator = options.responses === undefined ? undefined : iteratorOf(options.responses);
 		this.exhausted = options.responses === undefined;
 		this.fallback = options.handler;

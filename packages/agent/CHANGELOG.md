@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The `XmlToolCallLeakInterruption` backstop in the agent loop now only runs for models whose provider has `localInferenceControl: true` in models.yml. Cloud models no longer pay the per-message XML-leak scan, which caused a stuck CPU core on long streamed responses containing angle brackets (e.g. web-fetched Java/HTML).
+
 ## [15.10.3] - 2026-06-08
 
 ### Added

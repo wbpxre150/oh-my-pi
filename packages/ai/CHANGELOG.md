@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `getStreamMarkupHealingPattern` now requires `options.localInferenceControl: true` to select the `generic-xml` tool-call-leak healing pattern; cloud providers (openrouter, ollama-cloud, etc.) no longer run the generic-xml stream state machine. The `kimi`, `dsml`, and `thinking` patterns are unaffected.
+
 ## [15.10.3] - 2026-06-08
 
 ### Removed

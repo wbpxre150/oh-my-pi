@@ -891,7 +891,9 @@ async function streamAssistantResponse(
 	const dynamicToolChoice = config.getToolChoice?.();
 	const dynamicReasoning = config.getReasoning?.();
 	const harmonyMitigationEnabled = isHarmonyLeakMitigationTarget(config.model);
-	const xmlLeakScanEnabled = modelMayLeakGenericXmlToolCalls(config.model.provider, config.model.id);
+	const xmlLeakScanEnabled =
+		config.model.localInferenceControl === true &&
+		modelMayLeakGenericXmlToolCalls(config.model.provider, config.model.id);
 	const harmonyAbortController = harmonyMitigationEnabled ? new AbortController() : undefined;
 	const maxToolCallsPerTurn = normalizeMaxToolCallsPerTurn(config.maxToolCallsPerTurn);
 	const toolCallCapAbortController = maxToolCallsPerTurn === undefined ? undefined : new AbortController();

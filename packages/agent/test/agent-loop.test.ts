@@ -144,6 +144,7 @@ describe("agentLoop with AgentMessage", () => {
 			"package com.example\n\nclass Foo\n<antml:invoke>\n<function=write>\n<parameter=content>more stuff</parameter>\n</function>\n</antml:invoke>";
 		const mock = createMockModel({
 			provider: "llamacpp",
+			localInferenceControl: true,
 			responses: [
 				{
 					content: [

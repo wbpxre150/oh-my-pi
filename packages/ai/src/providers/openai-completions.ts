@@ -703,7 +703,9 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions"> = (
 				}
 			};
 
-			const streamMarkupHealingPattern = getStreamMarkupHealingPattern(model.provider, model.id);
+			const streamMarkupHealingPattern = getStreamMarkupHealingPattern(model.provider, model.id, {
+				localInferenceControl: model.localInferenceControl === true,
+			});
 			const streamMarkupHealing = streamMarkupHealingPattern
 				? new StreamMarkupHealing({ pattern: streamMarkupHealingPattern })
 				: undefined;
