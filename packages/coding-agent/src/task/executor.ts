@@ -7,6 +7,7 @@
 import path from "node:path";
 import type { AgentEvent, AgentIdentity, AgentTelemetryConfig, ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import { recordHandoff, resolveTelemetry } from "@oh-my-pi/pi-agent-core";
+import { runWithSlotId } from "@oh-my-pi/pi-ai";
 import { logger, prompt, untilAborted } from "@oh-my-pi/pi-utils";
 import { ModelRegistry } from "../config/model-registry";
 import { resolveModelOverrideWithAuthFallback } from "../config/model-resolver";
@@ -170,6 +171,14 @@ export interface ExecutorOptions {
 	 * See Stage 2 of the llama-server-fixes plan.
 	 */
 	activeSlots?: number;
+	/**
+	 * Local-inference slot index this subagent is pinned to (0..N-1). When set, every
+	 * completion request the subagent makes carries `id_slot: <index>` so the server
+	 * keeps one slot's KV cache warm for the whole agent loop. The caller erases the
+	 * slot via `eraseSlot` in a `finally` after this call resolves. Undefined for
+	 * non-local-inference runs and for the parent session.
+	 */
+	localInferenceSlotId?: number;
 	/**
 	 * Active model selector of the parent session, used as an auth-aware fallback
 	 * if the resolved subagent model has no working credentials. See #985.
@@ -1623,7 +1632,10 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		};
 	};
 
-	const done = await runSubagent();
+	const done =
+		options.localInferenceSlotId !== undefined
+			? await runWithSlotId(options.localInferenceSlotId, () => runSubagent())
+			: await runSubagent();
 	resolved = true;
 	listenerController.abort();
 	if (runtimeTimeoutId !== undefined) {

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { $env, extractHttpStatusFromError, getAgentDir } from "@oh-my-pi/pi-utils";
@@ -1161,6 +1162,22 @@ async function createClient(
 	};
 }
 
+// Per-subagent slot id for multi-slot llama.cpp servers. Set by the coding-agent
+// executor via runWithSlotId() so each parallel in-process subagent pins all of its
+// completion requests to one slot, then erases that slot on completion. Empty for the
+// parent session and for non-local-inference runs.
+const slotIdStorage = new AsyncLocalStorage<number | undefined>();
+
+/** Run `fn` with `slotId` as the active local-inference slot id for this async context. */
+export function runWithSlotId<T>(slotId: number, fn: () => Promise<T>): Promise<T> {
+	return slotIdStorage.run(slotId, fn);
+}
+
+/** Active slot id for the current async context, or undefined when none is set. */
+export function getActiveSlotId(): number | undefined {
+	return slotIdStorage.getStore();
+}
+
 // Single-slot llama.cpp marker: written by local-inference-manager.ts when the
 // remote server runs with one slot. When present, requests to the matching
 // baseUrl get id_slot: 0 injected.
@@ -1441,6 +1458,14 @@ function buildParams(
 		}
 	}
 
+	// Per-subagent slot pinning: when a slot id is active in this async context
+	// (set by runWithSlotId in the coding-agent executor), pin the request to it.
+	// The slot-mode file path above still handles single-slot/task mode (id_slot: 0);
+	// for multi-slot/explore the file is absent and this ALS value supplies the index.
+	const activeSlotId = getActiveSlotId();
+	if (activeSlotId !== undefined) {
+		params.id_slot ??= activeSlotId;
+	}
 	return { params, toolStrictMode };
 }
 
@@ -1453,7 +1478,6 @@ function getOptionalObjectProperty(value: object, key: string): object | undefin
 	const property = Reflect.get(value, key);
 	return typeof property === "object" && property !== null ? property : undefined;
 }
-
 function getChoiceUsage(choice: ChatCompletionChunk.Choice): object | undefined {
 	return getOptionalObjectProperty(choice, "usage");
 }
