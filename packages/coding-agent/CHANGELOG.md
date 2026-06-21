@@ -9,9 +9,13 @@
   explore agents never share a slot. Prevents system-RAM exhaustion from accumulated
   per-slot checkpoints.
 
-- Subagents can now pre-activate a fixed list of Token Savior MCP tools via a new `mcp-preactivate` frontmatter field (short names, no `mcp__token_savior_recall_` prefix). The executor expands and activates them before the agent's first turn, so the model does not need to run the `search_tool_bm25` / `switch_project` activation ritual. The explore agent uses this to make `search_codebase`, `find_symbol`, `get_function_source`, `get_full_context`, and `get_dependencies` live from turn 1, and receives a new `mcp-tools-subagent.md` prompt that drops the ritual and just directs tool use.
+
+- Added a `debug` bundled agent with all 31 Token Savior MCP tools pre-activated, the MCP code navigation prompt injected, and the DAP `debug` tool available. Bakes in debugging rules (read code first, reproduce, use DAP breakpoints, one-pass fix) so the user does not have to re-type them. Inherits the parent model and is blocking.
 
 ### Changed
+
+- Removed the Token Savior MCP activation prompt from the main agent's system prompt. The main agent no longer calls `search_tool_bm25` and `switch_project` on every task. MCP tools are still available via manual `search_tool_bm25` discovery, and plan mode retains MCP. The plan-mode active prompt now explicitly instructs the planner that stage files MUST NOT reference MCP tools for task subagents (which have MCP disabled).
+- Updated the subagent MCP prompt (`mcp-tools-subagent.md`) to tell subagents to call `switch_project` themselves, since the main agent no longer pre-activates the project. This is idempotent and safe for existing subagents (e.g. `explore` in plan mode).
 
 - The plan-mode-approved synthetic prompt now injects a hard instruction to spawn subagents one at a time when the session's model is on a local-inference-controlled provider, so the model does not batch `task` calls that the server's single task slot would reject.
 - Local inference server restarts now capture and persist the remote server PID in `.local-inference-state.json` and liveness-check it before reusing a matching-slot-count server. A server that crashed between calls triggers a transparent re-restart; `~/ai.sh` stdout `0` raises a hard "model is unavailable" error instead of silently proceeding. `ensureLocalInferenceSlots` now returns the active slot count.
