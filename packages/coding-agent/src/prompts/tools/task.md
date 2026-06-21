@@ -30,7 +30,7 @@ Subagents have no conversation history. Every fact, file path, and direction the
 </parameters>
 
 <rules>
-- **Maximize batch width.** Spawn the widest parallel set the work decomposes into. NEVER spawn a single-task batch for divisible work, or defer work that could have been concurrent.
+- **Maximize batch width within limits.** Spawn up to {{MAX_CONCURRENCY}} tasks per batch. NEVER spawn a single-task batch for divisible work, or defer work that could have been concurrent.
 - NEVER assign tasks to run project-wide build/test/lint. Caller verifies after the batch.
 - **Subagents do not verify, lint, or format.** Every assignment MUST instruct the subagent to skip all gates and formatters. You run them once at the end across the union of changed files — avoids redundant runs and racing formatter passes.
 - No globs, no "update all", no package-wide scope. Fan out.
@@ -40,6 +40,7 @@ Subagents have no conversation history. Every fact, file path, and direction the
 - Prefer agents that investigate **and** edit in one pass; only spin a read-only discovery step when affected files are genuinely unknown.
 - **Read-only agents**: Agents tagged READ-ONLY (e.g. `explore`) have no edit/write/command tools. NEVER hand them an assignment that requires changing files or running commands — they cannot do it and the turn is wasted. Use them to investigate and report back; do the edits yourself or delegate to a writing agent (`task`, `oracle`, `designer`).
 - **No reasoning offload**: NEVER offload reasoning, analysis, design, or decision-making to `quick_task` or `explore` — they run minimal-effort / small models for mechanical lookups and data collection only. Keep judgment and synthesis in your own context; delegate hard thinking to `task`, `plan`, or `oracle`.
+{{#if EXPLORE_LIMIT}}- **Explore batch limit**: The `explore` agent uses local inference and is limited to {{EXPLORE_LIMIT}} parallel slot(s). Batch at most {{EXPLORE_LIMIT}} explore tasks per call.{{/if}}
 </rules>
 
 <parallelization>

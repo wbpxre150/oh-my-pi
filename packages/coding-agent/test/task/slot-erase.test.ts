@@ -118,6 +118,7 @@ describe("local-inference slot erase", () => {
 			.spyOn(localInferenceManager, "eraseSlot")
 			.mockImplementation(async (_url: string, slotId: number) => {
 				log.push(`erase:${slotId}`);
+				return true;
 			});
 
 		const tool = await TaskTool.create(createSession());
@@ -125,13 +126,13 @@ describe("local-inference slot erase", () => {
 
 		// runSubprocess got two distinct slot ids in {0,1}
 		const runSlots = (executorModule.runSubprocess as any).mock.calls.map(
-			c => (c[0] as { localInferenceSlotId?: number }).localInferenceSlotId,
+			(c: any) => (c[0] as { localInferenceSlotId?: number }).localInferenceSlotId,
 		);
 		expect(runSlots).toHaveLength(2);
 		expect(new Set(runSlots)).toEqual(new Set([0, 1]));
 
 		// eraseSlot called once per slot, same set
-		const eraseSlots = (eraseSpy as any).mock.calls.map(c => c[1] as number);
+		const eraseSlots = (eraseSpy as any).mock.calls.map((c: any) => c[1] as number);
 		expect(eraseSlots).toHaveLength(2);
 		expect(new Set(eraseSlots)).toEqual(new Set([0, 1]));
 
@@ -147,7 +148,7 @@ describe("local-inference slot erase", () => {
 		vi.spyOn(localInferenceManager, "ensureLocalInferenceSlots").mockResolvedValue(1);
 		vi.spyOn(planHandoff, "loadOverallPlanReference").mockResolvedValue(undefined);
 		vi.spyOn(executorModule, "runSubprocess").mockRejectedValue(new Error("boom"));
-		const eraseSpy = vi.spyOn(localInferenceManager, "eraseSlot").mockResolvedValue();
+		const eraseSpy = vi.spyOn(localInferenceManager, "eraseSlot").mockResolvedValue(true);
 
 		const tool = await TaskTool.create(createSession());
 		await tool.execute("tool-call", ONE_EXPLORE);

@@ -196,10 +196,19 @@ function renderDescription(
 		readOnly: isReadOnlyAgent(agent),
 	}));
 	const { contextEnabled, customSchemaEnabled } = getTaskSimpleModeCapabilities(simpleMode);
+
+	// Read explore-specific concurrency limit from local inference config
+	let exploreLimit: number | null = null;
+	const liResult = LocalInferenceConfigFile.tryLoad();
+	if (liResult.status === "ok") {
+		exploreLimit = liResult.value.agentConcurrency.explore;
+	}
+
 	return prompt.render(taskDescriptionTemplate, {
 		agents: renderedAgents,
 		spawningDisabled,
 		MAX_CONCURRENCY: maxConcurrency,
+		EXPLORE_LIMIT: exploreLimit,
 		isolationEnabled,
 		asyncEnabled,
 		contextEnabled,
