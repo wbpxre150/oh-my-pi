@@ -16,6 +16,7 @@ import oracleMd from "../prompts/agents/oracle.md" with { type: "text" };
 import planMd from "../prompts/agents/plan.md" with { type: "text" };
 import reviewerMd from "../prompts/agents/reviewer.md" with { type: "text" };
 import taskMd from "../prompts/agents/task.md" with { type: "text" };
+import debugMd from "../prompts/agents/debug.md" with { type: "text" };
 
 import type { AgentDefinition, AgentSource } from "./types";
 
@@ -69,6 +70,7 @@ const EMBEDDED_AGENT_DEFS: EmbeddedAgentDef[] = [
 		},
 		template: taskMd,
 	},
+	{ fileName: "debug.md", template: debugMd },
 ];
 
 // Computed lazily on first loadBundledAgents() call to avoid eager prompt.render at module load.
