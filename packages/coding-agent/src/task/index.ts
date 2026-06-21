@@ -46,7 +46,7 @@ import { generateCommitMessage } from "../utils/commit-message-generator";
 import * as git from "../utils/git";
 import { discoverAgents, getAgent } from "./discovery";
 import { runSubprocess } from "./executor";
-import { ensureLocalInferenceSlots } from "./local-inference-manager";
+import { ensureLocalInferenceSlots, eraseSlot } from "./local-inference-manager";
 import { AgentOutputManager } from "./output-manager";
 import { mapWithConcurrencyLimit, Semaphore } from "./parallel";
 import { renderResult, renderCall as renderTaskCall } from "./render";
@@ -919,6 +919,12 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 		// Initialize progress tracking
 		const progressMap = new Map<number, AgentProgress>();
 		let activeSlotsOverride: number | undefined;
+		// Local-inference slot pool. Populated only when a controlled provider is active
+		// (see the slot-management block below). Each concurrent subagent pops a distinct
+		// id 0..N-1, is pinned to it via ExecutorOptions.localInferenceSlotId, and pushes
+		// it back after erasing it in runTask's finally.
+		let localInferenceBaseUrl: string | undefined;
+		let availableSlotIds: number[] = [];
 		// Update callback
 		const emitProgress = () => {
 			const progress = Array.from(progressMap.values()).sort((a, b) => a.index - b.index);
@@ -1035,183 +1041,193 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 			emitProgress();
 
 			const runTask = async (task: (typeof tasksWithUniqueIds)[number], index: number) => {
-				if (!isIsolated) {
-					return runSubprocess({
-						cwd: this.session.cwd,
-						agent: effectiveAgent,
-						task: renderSubagentUserPrompt(task.assignment, simpleMode),
-						assignment: task.assignment.trim(),
-						context: sharedContext,
-						planReference,
-						description: task.description,
-						index,
-						id: task.id,
-						taskDepth,
-						modelOverride,
-						activeSlots: activeSlotsOverride,
-						parentActiveModelPattern,
-						thinkingLevel: thinkingLevelOverride,
-						outputSchema: effectiveOutputSchema,
-						sessionFile,
-						persistArtifacts: !!artifactsDir,
-						artifactsDir: effectiveArtifactsDir,
-						contextFile: contextFilePath,
-						enableLsp: subagentLspEnabled,
-						signal,
-						eventBus: this.session.eventBus,
-						onProgress: progress => {
-							progressMap.set(index, {
-								...structuredClone(progress),
-							});
-							emitProgress();
-						},
-						authStorage: this.session.authStorage,
-						modelRegistry: this.session.modelRegistry,
-						settings: this.session.settings,
-						mcpManager,
-						contextFiles,
-						skills: availableSkills,
-						autoloadSkills: resolvedAutoloadSkills,
-						workspaceTree: this.session.workspaceTree,
-						promptTemplates,
-						localProtocolOptions,
-						parentArtifactManager,
-						parentHindsightSessionState: this.session.getHindsightSessionState?.(),
-						parentMnemopiSessionState: this.session.getMnemopiSessionState?.(),
-						parentTelemetry: this.session.getTelemetry?.(),
-						parentEvalSessionId,
-					});
-				}
-
-				const taskStart = Date.now();
-				let isolationHandle: IsolationHandle | undefined;
+				const slotId = availableSlotIds.length > 0 ? availableSlotIds.pop()! : undefined;
 				try {
-					if (!repoRoot || !baseline) {
-						throw new Error("Isolated task execution not initialized.");
+					if (!isIsolated) {
+						return await runSubprocess({
+							cwd: this.session.cwd,
+							agent: effectiveAgent,
+							task: renderSubagentUserPrompt(task.assignment, simpleMode),
+							assignment: task.assignment.trim(),
+							context: sharedContext,
+							planReference,
+							description: task.description,
+							index,
+							id: task.id,
+							taskDepth,
+							modelOverride,
+							activeSlots: activeSlotsOverride,
+							localInferenceSlotId: slotId,
+							parentActiveModelPattern,
+							thinkingLevel: thinkingLevelOverride,
+							outputSchema: effectiveOutputSchema,
+							sessionFile,
+							persistArtifacts: !!artifactsDir,
+							artifactsDir: effectiveArtifactsDir,
+							contextFile: contextFilePath,
+							enableLsp: subagentLspEnabled,
+							signal,
+							eventBus: this.session.eventBus,
+							onProgress: progress => {
+								progressMap.set(index, {
+									...structuredClone(progress),
+								});
+								emitProgress();
+							},
+							authStorage: this.session.authStorage,
+							modelRegistry: this.session.modelRegistry,
+							settings: this.session.settings,
+							mcpManager,
+							contextFiles,
+							skills: availableSkills,
+							autoloadSkills: resolvedAutoloadSkills,
+							workspaceTree: this.session.workspaceTree,
+							promptTemplates,
+							localProtocolOptions,
+							parentArtifactManager,
+							parentHindsightSessionState: this.session.getHindsightSessionState?.(),
+							parentMnemopiSessionState: this.session.getMnemopiSessionState?.(),
+							parentTelemetry: this.session.getTelemetry?.(),
+							parentEvalSessionId,
+						});
 					}
-					const taskBaseline = structuredClone(baseline);
 
-					isolationHandle = await ensureIsolation(repoRoot, task.id, preferredIsolationBackend);
-					const isolationDir = isolationHandle.mergedDir;
+					const taskStart = Date.now();
+					let isolationHandle: IsolationHandle | undefined;
+					try {
+						if (!repoRoot || !baseline) {
+							throw new Error("Isolated task execution not initialized.");
+						}
+						const taskBaseline = structuredClone(baseline);
 
-					const result = await runSubprocess({
-						cwd: this.session.cwd,
-						worktree: isolationDir,
-						agent: effectiveAgent,
-						task: renderSubagentUserPrompt(task.assignment, simpleMode),
-						assignment: task.assignment.trim(),
-						context: sharedContext,
-						planReference,
-						description: task.description,
-						index,
-						id: task.id,
-						taskDepth,
-						modelOverride,
-						activeSlots: activeSlotsOverride,
-						parentActiveModelPattern,
-						thinkingLevel: thinkingLevelOverride,
-						outputSchema: effectiveOutputSchema,
-						sessionFile,
-						persistArtifacts: !!artifactsDir,
-						artifactsDir: effectiveArtifactsDir,
-						contextFile: contextFilePath,
-						enableLsp: subagentLspEnabled,
-						signal,
-						eventBus: this.session.eventBus,
-						onProgress: progress => {
-							progressMap.set(index, {
-								...structuredClone(progress),
-							});
-							emitProgress();
-						},
-						authStorage: this.session.authStorage,
-						modelRegistry: this.session.modelRegistry,
-						settings: this.session.settings,
-						mcpManager,
-						contextFiles,
-						skills: availableSkills,
-						autoloadSkills: resolvedAutoloadSkills,
-						workspaceTree: this.session.workspaceTree,
-						promptTemplates,
-						localProtocolOptions,
-						parentArtifactManager,
-						parentHindsightSessionState: this.session.getHindsightSessionState?.(),
-						parentMnemopiSessionState: this.session.getMnemopiSessionState?.(),
-						parentTelemetry: this.session.getTelemetry?.(),
-						parentEvalSessionId,
-					});
-					if (mergeMode === "branch" && result.exitCode === 0) {
-						try {
-							const commitMsg =
-								commitStyle === "ai" && this.session.modelRegistry
-									? async (diff: string) => {
-											return generateCommitMessage(
-												diff,
-												this.session.modelRegistry!,
-												this.session.settings,
-												this.session.getSessionId?.() ?? undefined,
-											);
-										}
-									: undefined;
-							const commitResult = await commitToBranch(
-								isolationDir,
-								taskBaseline,
-								task.id,
-								task.description,
-								commitMsg,
-							);
-							return {
-								...result,
-								branchName: commitResult?.branchName,
-								nestedPatches: commitResult?.nestedPatches,
-							};
-						} catch (mergeErr) {
-							// Agent succeeded but branch commit failed — clean up stale branch
-							const branchName = `omp/task/${task.id}`;
-							await git.branch.tryDelete(repoRoot, branchName);
-							const msg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
-							return { ...result, error: `Merge failed: ${msg}` };
+						isolationHandle = await ensureIsolation(repoRoot, task.id, preferredIsolationBackend);
+						const isolationDir = isolationHandle.mergedDir;
+
+						const result = await runSubprocess({
+							cwd: this.session.cwd,
+							worktree: isolationDir,
+							agent: effectiveAgent,
+							task: renderSubagentUserPrompt(task.assignment, simpleMode),
+							assignment: task.assignment.trim(),
+							context: sharedContext,
+							planReference,
+							description: task.description,
+							index,
+							id: task.id,
+							taskDepth,
+							modelOverride,
+							activeSlots: activeSlotsOverride,
+							localInferenceSlotId: slotId,
+							parentActiveModelPattern,
+							thinkingLevel: thinkingLevelOverride,
+							outputSchema: effectiveOutputSchema,
+							sessionFile,
+							persistArtifacts: !!artifactsDir,
+							artifactsDir: effectiveArtifactsDir,
+							contextFile: contextFilePath,
+							enableLsp: subagentLspEnabled,
+							signal,
+							eventBus: this.session.eventBus,
+							onProgress: progress => {
+								progressMap.set(index, {
+									...structuredClone(progress),
+								});
+								emitProgress();
+							},
+							authStorage: this.session.authStorage,
+							modelRegistry: this.session.modelRegistry,
+							settings: this.session.settings,
+							mcpManager,
+							contextFiles,
+							skills: availableSkills,
+							autoloadSkills: resolvedAutoloadSkills,
+							workspaceTree: this.session.workspaceTree,
+							promptTemplates,
+							localProtocolOptions,
+							parentArtifactManager,
+							parentHindsightSessionState: this.session.getHindsightSessionState?.(),
+							parentMnemopiSessionState: this.session.getMnemopiSessionState?.(),
+							parentTelemetry: this.session.getTelemetry?.(),
+							parentEvalSessionId,
+						});
+						if (mergeMode === "branch" && result.exitCode === 0) {
+							try {
+								const commitMsg =
+									commitStyle === "ai" && this.session.modelRegistry
+										? async (diff: string) => {
+												return generateCommitMessage(
+													diff,
+													this.session.modelRegistry!,
+													this.session.settings,
+													this.session.getSessionId?.() ?? undefined,
+												);
+											}
+										: undefined;
+								const commitResult = await commitToBranch(
+									isolationDir,
+									taskBaseline,
+									task.id,
+									task.description,
+									commitMsg,
+								);
+								return {
+									...result,
+									branchName: commitResult?.branchName,
+									nestedPatches: commitResult?.nestedPatches,
+								};
+							} catch (mergeErr) {
+								// Agent succeeded but branch commit failed — clean up stale branch
+								const branchName = `omp/task/${task.id}`;
+								await git.branch.tryDelete(repoRoot, branchName);
+								const msg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+								return { ...result, error: `Merge failed: ${msg}` };
+							}
+						}
+						if (result.exitCode === 0) {
+							try {
+								const delta = await captureDeltaPatch(isolationDir, taskBaseline);
+								const patchPath = path.join(effectiveArtifactsDir, `${task.id}.patch`);
+								await Bun.write(patchPath, delta.rootPatch);
+								return {
+									...result,
+									patchPath,
+									nestedPatches: delta.nestedPatches,
+								};
+							} catch (patchErr) {
+								const msg = patchErr instanceof Error ? patchErr.message : String(patchErr);
+								return { ...result, error: `Patch capture failed: ${msg}` };
+							}
+						}
+						return result;
+					} catch (err) {
+						const message = err instanceof Error ? err.message : String(err);
+						const assignment = task.assignment.trim();
+						return {
+							index,
+							id: task.id,
+							agent: agent.name,
+							agentSource: agent.source,
+							task: renderSubagentUserPrompt(assignment, simpleMode),
+							assignment,
+							description: task.description,
+							exitCode: 1,
+							output: "",
+							stderr: message,
+							truncated: false,
+							durationMs: Date.now() - taskStart,
+							tokens: 0,
+							modelOverride,
+							error: message,
+						};
+					} finally {
+						if (isolationHandle) {
+							await cleanupIsolation(isolationHandle);
 						}
 					}
-					if (result.exitCode === 0) {
-						try {
-							const delta = await captureDeltaPatch(isolationDir, taskBaseline);
-							const patchPath = path.join(effectiveArtifactsDir, `${task.id}.patch`);
-							await Bun.write(patchPath, delta.rootPatch);
-							return {
-								...result,
-								patchPath,
-								nestedPatches: delta.nestedPatches,
-							};
-						} catch (patchErr) {
-							const msg = patchErr instanceof Error ? patchErr.message : String(patchErr);
-							return { ...result, error: `Patch capture failed: ${msg}` };
-						}
-					}
-					return result;
-				} catch (err) {
-					const message = err instanceof Error ? err.message : String(err);
-					const assignment = task.assignment.trim();
-					return {
-						index,
-						id: task.id,
-						agent: agent.name,
-						agentSource: agent.source,
-						task: renderSubagentUserPrompt(assignment, simpleMode),
-						assignment,
-						description: task.description,
-						exitCode: 1,
-						output: "",
-						stderr: message,
-						truncated: false,
-						durationMs: Date.now() - taskStart,
-						tokens: 0,
-						modelOverride,
-						error: message,
-					};
 				} finally {
-					if (isolationHandle) {
-						await cleanupIsolation(isolationHandle);
+					if (slotId !== undefined && localInferenceBaseUrl) {
+						await eraseSlot(localInferenceBaseUrl, slotId);
+						availableSlotIds.push(slotId);
 					}
 				}
 			};
@@ -1267,6 +1283,8 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 							liProvider.baseUrl,
 						);
 						activeSlotsOverride = activeSlots;
+						localInferenceBaseUrl = liProvider.baseUrl;
+						availableSlotIds = Array.from({ length: activeSlots }, (_, i) => i);
 					}
 				}
 			}
