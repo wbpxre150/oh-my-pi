@@ -8,6 +8,7 @@ import {
 	type AssistantMessageEvent,
 	type Context,
 	EventStream,
+	isParseError,
 	isZodSchema,
 	modelMayLeakGenericXmlToolCalls,
 	streamSimple,
@@ -746,6 +747,8 @@ async function emitHarmonyAudit(
 
 const XML_LEAK_SENTINELS = ["<antml:invoke>", "<tool_call>"] as const;
 
+/** Open markers that indicate leaked XML tool-call markup in visible text. */
+const XML_TEXT_LEAK_SENTINELS = ["<antml:invoke>", "<function=", "<parameter="] as const;
 /**
  * Scan a finalized assistant message's tool call arguments for XML
  * tool-call sentinels that indicate the model drifted from structured
@@ -831,10 +834,57 @@ function detectXmlToolCallLeak(
 	return undefined;
 }
 
+/**
+ * Scan a finalized assistant message's visible TEXT content for leaked XML
+ * tool-call markup or a server-side parse-error string. When found, truncate
+ * the text to the clean prefix and return a clean message + the contaminated
+ * tail. Catches bare `<function=NAME>` leaks and "Failed to parse input at
+ * pos N" errors that land in content rather than `errorMessage`.
+ */
+function detectXmlLeakInText(
+	message: AssistantMessage,
+): { cleanMessage: AssistantMessage; contaminatedTail: string; toolCallId: string } | undefined {
+	for (let i = 0; i < message.content.length; i++) {
+		const block = message.content[i];
+		if (block?.type !== "text") continue;
+		const text = block.text;
+		if (text.length === 0) continue;
+
+		let pos = -1;
+		for (const sentinel of XML_TEXT_LEAK_SENTINELS) {
+			const p = text.indexOf(sentinel);
+			if (p >= 0 && (pos < 0 || p < pos)) pos = p;
+		}
+		if (pos < 0 && isParseError(text)) {
+			// The whole text is a server parse-error message; clean from the start.
+			pos = 0;
+		}
+		if (pos < 0) continue;
+
+		const cleanText = text.slice(0, pos);
+		const contaminatedTail = text.slice(pos);
+		const cleanContent = [...message.content];
+		if (cleanText.trim().length === 0) {
+			cleanContent.splice(i, 1);
+		} else {
+			cleanContent[i] = { type: "text", text: cleanText };
+		}
+		const hasToolCalls = cleanContent.some(c => c.type === "toolCall");
+		const cleanMessage: AssistantMessage = {
+			...message,
+			content: cleanContent,
+			stopReason: hasToolCalls ? "toolUse" : "stop",
+			errorMessage: undefined,
+		};
+		return { cleanMessage, contaminatedTail, toolCallId: "text" };
+	}
+	return undefined;
+}
+
 const XML_LEAK_STEERING_TEXT =
-	"Your previous response embedded XML tool-call markup inside a tool call parameter value. " +
-	"The clean prefix of the parameter was accepted and the tool call will execute with it. " +
-	"Please re-issue any additional tool calls you were trying to make using the structured tool call API format, not XML.";
+	"Your previous response embedded XML tool-call markup (such as <function=>, <parameter=>, or <antml:invoke>) " +
+	"instead of using the structured tool-call API. Re-issue your intended tool calls using the native structured " +
+	"tool-call format. Do not emit raw XML tool-call tags in your output.";
 
 /**
  * Stream an assistant response from the LLM.
@@ -1131,7 +1181,7 @@ async function streamAssistantResponse(
 								}
 							}
 							if (xmlLeakScanEnabled) {
-								const xmlLeak = detectXmlToolCallLeak(finalMessage);
+								const xmlLeak = detectXmlToolCallLeak(finalMessage) ?? detectXmlLeakInText(finalMessage);
 								if (xmlLeak) {
 									if (addedPartial) {
 										context.messages.pop();
@@ -1174,7 +1224,7 @@ async function streamAssistantResponse(
 				}
 			}
 			if (xmlLeakScanEnabled) {
-				const xmlLeak = detectXmlToolCallLeak(trailing);
+				const xmlLeak = detectXmlToolCallLeak(trailing) ?? detectXmlLeakInText(trailing);
 				if (xmlLeak) {
 					if (addedPartial) {
 						context.messages.pop();

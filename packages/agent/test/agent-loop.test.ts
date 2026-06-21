@@ -169,6 +169,75 @@ describe("agentLoop with AgentMessage", () => {
 		expect(mock.calls).toHaveLength(2);
 	});
 
+	it("detects bare <function=NAME> leak in assistant text and retries", async () => {
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [] };
+		const leakedText =
+			"Let me search.\n<function=search>\n<parameter=query>how to parse xml</parameter>\n</function>";
+		const mock = createMockModel({
+			provider: "llamacpp",
+			localInferenceControl: true,
+			responses: [{ content: [leakedText] }, { content: ["clean retry response"] }],
+		});
+		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
+		const stream = agentLoop([createUserMessage("search for xml parsing")], context, config, undefined, mock.stream);
+		for await (const _event of stream) {
+			// drain
+		}
+		const messages = await stream.result();
+
+		// Two model calls: first (leaky text) -> steering retry, second (clean).
+		expect(mock.calls).toHaveLength(2);
+		expect(JSON.stringify(messages)).not.toContain("<function=search>");
+		const final = messages[messages.length - 1];
+		if (final.role !== "assistant") throw new Error("expected assistant message");
+		expect(final.content).toEqual([{ type: "text", text: "clean retry response" }]);
+	});
+
+	it("detects server parse-error text in assistant content and retries", async () => {
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [] };
+		// Mimics llama.cpp surfacing the grammar failure as visible text content.
+		const leakedText = "Failed to parse input at pos 1130: <function=search>\n<parameter=query>foo</parameter>";
+		const mock = createMockModel({
+			provider: "llamacpp",
+			localInferenceControl: true,
+			responses: [{ content: [leakedText] }, { content: ["clean retry response"] }],
+		});
+		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
+		const stream = agentLoop([createUserMessage("do the thing")], context, config, undefined, mock.stream);
+		for await (const _event of stream) {
+			// drain
+		}
+		const messages = await stream.result();
+
+		expect(mock.calls).toHaveLength(2);
+		// The sentinel content was trimmed; the prefix "Failed to parse input at pos 1130: " remains
+		// (harmless origin prefix), but the leaked <function=search> markup is gone.
+		expect(JSON.stringify(messages)).not.toContain("<function=search>");
+		expect(JSON.stringify(messages)).not.toContain("<parameter=query>");
+	});
+
+	it("does not trigger text-leak backstop for cloud models (no localInferenceControl)", async () => {
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [] };
+		// Legitimate prose that mentions the format must not be treated as a leak
+		// when the model is not local-inference-controlled.
+		const prose = "The legacy format was <function=search><parameter=query>q</parameter></function>.";
+		const mock = createMockModel({
+			provider: "openrouter",
+			responses: [{ content: [prose] }],
+		});
+		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
+		const stream = agentLoop([createUserMessage("describe the format")], context, config, undefined, mock.stream);
+		for await (const _event of stream) {
+			// drain
+		}
+		const messages = await stream.result();
+
+		expect(mock.calls).toHaveLength(1);
+		const final = messages[messages.length - 1];
+		if (final.role !== "assistant") throw new Error("expected assistant message");
+		expect(final.content).toEqual([{ type: "text", text: prose }]);
+	});
+
 	it("emits an aborted assistant message when cancellation happens before provider events", async () => {
 		const context: AgentContext = {
 			systemPrompt: ["You are helpful."],

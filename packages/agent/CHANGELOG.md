@@ -6,6 +6,8 @@
 
 - The `XmlToolCallLeakInterruption` backstop in the agent loop now only runs for models whose provider has `localInferenceControl: true` in models.yml. Cloud models no longer pay the per-message XML-leak scan, which caused a stuck CPU core on long streamed responses containing angle brackets (e.g. web-fetched Java/HTML).
 
+- The agent-loop XML-leak backstop now also scans finalized assistant **text** content (not just tool-call argument values) for leaked XML tool-call markup (`<antml:invoke>`, `<function=`, `<parameter=`) and server-side parse-error strings (e.g. llama.cpp's `Failed to parse input at pos N`). Bare `<function=NAME>` leaks that landed in visible text previously bypassed the backstop and never triggered a steering retry; they now engage the same `XmlToolCallLeakInterruption` recovery path. Gated on `localInferenceControl` as before.
+
 ## [15.10.3] - 2026-06-08
 
 ### Added
