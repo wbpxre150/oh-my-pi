@@ -1233,20 +1233,20 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					resolvedModel: model.id,
 				});
 			}
-			if (model?.contextWindow && model.contextWindow > 0) {
-				progress.contextWindow = model.contextWindow;
-			}
-			if (model) {
-				progress.resolvedModel = explicitThinkingLevel
-					? `${model.provider}/${model.id}:${resolvedThinkingLevel}`
-					: `${model.provider}/${model.id}`;
-			}
 			// Local-inference context-window division: when multiple slots are active,
 			// each subagent gets an equal share of the model's context window.
 			const effectiveModel =
 				activeSlots && activeSlots > 1 && model && model.contextWindow > 0
 					? { ...model, contextWindow: Math.floor(model.contextWindow / activeSlots) }
 					: model;
+			if (effectiveModel?.contextWindow && effectiveModel.contextWindow > 0) {
+				progress.contextWindow = effectiveModel.contextWindow;
+			}
+			if (model) {
+				progress.resolvedModel = explicitThinkingLevel
+					? `${model.provider}/${model.id}:${resolvedThinkingLevel}`
+					: `${model.provider}/${model.id}`;
+			}
 			const effectiveThinkingLevel = explicitThinkingLevel
 				? resolvedThinkingLevel
 				: (thinkingLevel ?? resolvedThinkingLevel);

@@ -663,7 +663,12 @@ async function runLoopBody(
 				// Retry cap and fallback exhausted — fall through to the normal error handler below.
 			} else {
 				parseErrorRetryCount = 0;
-				textToolCallFallback = false;
+				fallbackAttemptCount = 0;
+				// Do NOT reset textToolCallFallback: once the model has demonstrated it
+				// cannot produce valid structured tool-call syntax, keep the fallback
+				// active for the rest of this session. Resetting it here caused the
+				// next parse-error cycle to exhaust retries and fail (fallbackAttemptCount
+				// was already 1 so the cap check prevented re-entry).
 			}
 
 			if (message.stopReason === "error" || message.stopReason === "aborted") {

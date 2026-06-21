@@ -139,11 +139,7 @@ describe("parseAgentFields", () => {
 			description: "desc",
 			"mcp-preactivate": "search_codebase, find_symbol, get_function_source",
 		});
-		expect(fields?.mcpPreactivate).toEqual([
-			"search_codebase",
-			"find_symbol",
-			"get_function_source",
-		]);
+		expect(fields?.mcpPreactivate).toEqual(["search_codebase", "find_symbol", "get_function_source"]);
 	});
 
 	test("parses mcp-preactivate from array frontmatter", () => {

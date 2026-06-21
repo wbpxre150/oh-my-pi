@@ -385,7 +385,7 @@ describe("agentLoop with AgentMessage", () => {
 		expect(final.errorMessage).toContain("Failed to parse input");
 	});
 
-	it("resets fallback mode after a successful fallback turn", async () => {
+	it("stays in fallback mode after a successful fallback turn so repeated parse errors don't kill the agent", async () => {
 		const toolSchema = z.object({ content: z.string() });
 		const executed: string[] = [];
 		const tool: AgentTool<typeof toolSchema, { content: string }> = {
@@ -399,7 +399,9 @@ describe("agentLoop with AgentMessage", () => {
 			},
 		};
 		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [tool] };
-		// 4 parse errors -> fallback -> success -> another normal turn
+		// 4 parse errors -> fallback -> tool call succeeds -> another tool call succeeds in fallback
+		// (previously textToolCallFallback was reset to false after success, which combined with
+		// fallbackAttemptCount=1 meant a second parse-error cycle would exhaust retries and die)
 		const mock = createMockModel({
 			provider: "llamacpp",
 			localInferenceControl: true,
@@ -408,24 +410,29 @@ describe("agentLoop with AgentMessage", () => {
 				{ throw: "Failed to parse input at pos 200: <function=write>" },
 				{ throw: "Failed to parse input at pos 300: <function=write>" },
 				{ throw: "Failed to parse input at pos 400: <function=write>" },
-				{ content: [{ type: "toolCall", id: "tool-1", name: "write", arguments: { content: "fallback output" } }] },
-				{ content: ["done after fallback"] },
+				{ content: [{ type: "toolCall", id: "tool-1", name: "write", arguments: { content: "first" } }] },
+				// Continuation: model makes another tool call (still in fallback mode)
+				{ content: [{ type: "toolCall", id: "tool-2", name: "write", arguments: { content: "second" } }] },
+				{ content: ["all done"] },
 			],
 		});
 		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
-		const stream = agentLoop([createUserMessage("write a file")], context, config, undefined, mock.stream);
+		const stream = agentLoop([createUserMessage("write two files")], context, config, undefined, mock.stream);
 		for await (const _event of stream) {
 			// drain
 		}
 		const messages = await stream.result();
 
-		// Fallback turn (call 5) succeeded with a tool call, then the tool result
-		// was fed back and the model produced a final text response (call 6).
-		expect(mock.calls).toHaveLength(6);
-		expect(executed).toEqual(["fallback output"]);
+		// 7 calls: initial + 3 retries + fallback call 1 + fallback call 2 + final text.
+		// The 6th and 7th calls must also be in fallback mode (tools=[]).
+		expect(mock.calls).toHaveLength(7);
+		// Calls 5 and 6 (indices 4 and 5) must be in fallback mode (no tools on wire).
+		expect(mock.calls[4]!.context.tools).toHaveLength(0);
+		expect(mock.calls[5]!.context.tools).toHaveLength(0);
+		expect(executed).toEqual(["first", "second"]);
 		const final = messages[messages.length - 1];
 		if (final.role !== "assistant") throw new Error("expected assistant message");
-		expect(final.content).toEqual([{ type: "text", text: "done after fallback" }]);
+		expect(final.content).toEqual([{ type: "text", text: "all done" }]);
 	});
 
 	it("emits an aborted assistant message when cancellation happens before provider events", async () => {

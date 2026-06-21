@@ -31,6 +31,8 @@
 - Fixed stage files appearing in reversed/scrambled order at plan approval (e.g. "Stage 1" pointing at `local://stage-3.md`). Stage discovery listed files newest-first by mtime and then labeled them positionally, so the displayed stage number depended on write order instead of the filename. Stage listings (`#listLocalStageFiles`, `#listAcpLocalStageFiles`), the plan-reference builder, and `plan-handoff.ts` now sort by the numeric stage index via the shared `stageFileIndex` helper, and the post-approval prompt derives each displayed stage number from its filename, so "Stage N" always maps to `local://stage-N.md` (and `stage-10.md` follows `stage-2.md`).
 - Local-inference-controlled task calls now return a hard error when the submitted task count exceeds the server's slot budget (1 for non-explore agents, `agentConcurrency.explore` for explore), instead of silently serializing over-limit batches. Applies to both sync and async dispatch paths; no subagents start when the check fails.
 
+- Fixed subagent progress reporting showing the full model context window instead of the per-slot divided window when local inference runs with multiple parallel slots. The `progress.contextWindow` field in the executor now reflects the divided value (`contextWindow / activeSlots`), so the TUI and session observer display the correct per-agent context budget.
+
 ## [15.10.3] - 2026-06-08
 
 ### Added
