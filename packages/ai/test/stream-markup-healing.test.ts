@@ -330,65 +330,58 @@ describe("StreamMarkupHealing generic-xml pattern", () => {
 		expect(calls.map(c => c.name)).toEqual(["read", "read"]);
 		expect(calls.map(c => JSON.parse(c.arguments))).toEqual([{ path: "a.ts" }, { path: "b.ts" }]);
 		expect(calls[0].id).not.toBe(calls[1].id);
-  });
+	});
 
-  it("parses a bare invoke leak with no wrapper", () => {
-    const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
-    const bareLeak =
-      "<function=search>\n" +
-      "<parameter=query>how to parse xml</parameter>\n" +
-      "</function>";
-    expect(healing.feed(bareLeak)).toBe("");
+	it("parses a bare invoke leak with no wrapper", () => {
+		const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
+		const bareLeak = "<function=search>\n" + "<parameter=query>how to parse xml</parameter>\n" + "</function>";
+		expect(healing.feed(bareLeak)).toBe("");
 
-    const calls = healing.drainCompleted();
-    expect(calls).toHaveLength(1);
-    expect(calls[0].name).toBe("search");
-    const args = JSON.parse(calls[0].arguments);
-    expect(args.query).toBe("how to parse xml");
-  });
+		const calls = healing.drainCompleted();
+		expect(calls).toHaveLength(1);
+		expect(calls[0].name).toBe("search");
+		const args = JSON.parse(calls[0].arguments);
+		expect(args.query).toBe("how to parse xml");
+	});
 
-  it("preserves surrounding text around a bare invoke", () => {
-    const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
-    const events = healing.feedEvents(
-      "Let me look that up.\n" +
-      "<function=search><parameter=query>foo</parameter></function>" +
-      "\nDone.",
-    );
-    expect(events.map(e => e.type)).toEqual(["text", "toolCall", "text"]);
-    const before = events[0];
-    const call = events[1];
-    const after = events[2];
-    if (before?.type !== "text" || call?.type !== "toolCall" || after?.type !== "text") {
-      throw new Error("bare-invoke healing emitted unexpected event order");
-    }
-    expect(before.text).toBe("Let me look that up.\n");
-    expect(call.call.name).toBe("search");
-    expect(after.text).toBe("\nDone.");
-  });
+	it("preserves surrounding text around a bare invoke", () => {
+		const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
+		const events = healing.feedEvents(
+			"Let me look that up.\n" + "<function=search><parameter=query>foo</parameter></function>" + "\nDone.",
+		);
+		expect(events.map(e => e.type)).toEqual(["text", "toolCall", "text"]);
+		const before = events[0];
+		const call = events[1];
+		const after = events[2];
+		if (before?.type !== "text" || call?.type !== "toolCall" || after?.type !== "text") {
+			throw new Error("bare-invoke healing emitted unexpected event order");
+		}
+		expect(before.text).toBe("Let me look that up.\n");
+		expect(call.call.name).toBe("search");
+		expect(after.text).toBe("\nDone.");
+	});
 
-  it("parses two consecutive bare invokes with no wrapper", () => {
-    const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
-    healing.feed(
-      "<function=read><parameter=path>a.ts</parameter></function>" +
-      "<function=read><parameter=path>b.ts</parameter></function>",
-    );
-    const calls = healing.drainCompleted();
-    expect(calls).toHaveLength(2);
-    expect(calls[0].name).toBe("read");
-    expect(calls[1].name).toBe("read");
-    expect(JSON.parse(calls[0].arguments).path).toBe("a.ts");
-    expect(JSON.parse(calls[1].arguments).path).toBe("b.ts");
-  });
+	it("parses two consecutive bare invokes with no wrapper", () => {
+		const healing = new StreamMarkupHealing({ pattern: "generic-xml" });
+		healing.feed(
+			"<function=read><parameter=path>a.ts</parameter></function>" +
+				"<function=read><parameter=path>b.ts</parameter></function>",
+		);
+		const calls = healing.drainCompleted();
+		expect(calls).toHaveLength(2);
+		expect(calls[0].name).toBe("read");
+		expect(calls[1].name).toBe("read");
+		expect(JSON.parse(calls[0].arguments).path).toBe("a.ts");
+		expect(JSON.parse(calls[1].arguments).path).toBe("b.ts");
+	});
 
-  it("still requires the DSML section wrapper (allowBareInvoke: false)", () => {
-    const healing = new StreamMarkupHealing({ pattern: "dsml" });
-    const pipe = String.fromCharCode(0xFF5C);
-    const bare = "<｜DSML｜invoke name=\"search\">" +
-      "<｜DSML｜parameter name=\"q\">foo</｜DSML｜parameter>" +
-      "</｜DSML｜invoke>";
-    expect(healing.feed(bare)).toBe(bare);
-    expect(healing.drainCompleted()).toHaveLength(0);
-  });
+	it("still requires the DSML section wrapper (allowBareInvoke: false)", () => {
+		const healing = new StreamMarkupHealing({ pattern: "dsml" });
+		const bare =
+			'<｜DSML｜invoke name="search">' + '<｜DSML｜parameter name="q">foo</｜DSML｜parameter>' + "</｜DSML｜invoke>";
+		expect(healing.feed(bare)).toBe(bare);
+		expect(healing.drainCompleted()).toHaveLength(0);
+	});
 });
 
 describe("StreamMarkupHealing thinking pattern", () => {
