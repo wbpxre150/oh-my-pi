@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- Erase the remote llama.cpp slot KV cache after each subagent completes (success or
+  failure) via `POST {providerBaseUrl}/slots/{id}?action=erase`, pinning each concurrent
+  subagent to a distinct slot index `0..N-1` so the correct slot is cleared and parallel
+  explore agents never share a slot. Prevents system-RAM exhaustion from accumulated
+  per-slot checkpoints.
 
 - Subagents can now pre-activate a fixed list of Token Savior MCP tools via a new `mcp-preactivate` frontmatter field (short names, no `mcp__token_savior_recall_` prefix). The executor expands and activates them before the agent's first turn, so the model does not need to run the `search_tool_bm25` / `switch_project` activation ritual. The explore agent uses this to make `search_codebase`, `find_symbol`, `get_function_source`, `get_full_context`, and `get_dependencies` live from turn 1, and receives a new `mcp-tools-subagent.md` prompt that drops the ritual and just directs tool use.
 

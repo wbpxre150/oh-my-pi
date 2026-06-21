@@ -118,6 +118,27 @@ call when the desired slot count matches what the first call already set.
 
 Used to avoid unnecessary restarts. Start with `currentSlots: null` on fresh state (first
 run always restarts).
+## Slot KV-cache Erase
+
+After each subagent completes (success, failure, or abort) the TaskTool POSTs
+`{providerBaseUrl}/slots/{slotId}?action=erase` to wipe that slot's KV cache and context
+checkpoints. Without this, accumulated per-slot checkpoints exhaust system RAM and crash
+the server.
+
+Each concurrent subagent is pinned to a deterministic slot index `0..N-1` (where N is the
+slot count returned by `ensureLocalInferenceSlots`), so the correct slot is erased and
+parallel explore agents never share a slot. The pinning is threaded into every completion
+request as `id_slot: <index>` via an `AsyncLocalStorage` scope set by the executor
+(`runWithSlotId` in `@oh-my-pi/pi-ai`).
+
+- Task agents: N=1, slot 0; erased after each task.
+- Explore agents: N = `agentConcurrency.explore`; each agent erases its own index.
+- The erase call is best-effort (logged, never throws), so a dead server or network error
+  cannot poison the subagent result or block the slot pool.
+
+Source: `eraseSlot` in `packages/coding-agent/src/task/local-inference-manager.ts`; the
+slot pool and per-agent `finally` in `packages/coding-agent/src/task/index.ts`
+(`#executeSync`); the ALS channel in `packages/ai/src/providers/openai-completions.ts`.
 
 ## Per-Agent Slot Limits
 

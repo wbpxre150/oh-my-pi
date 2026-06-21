@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- `runWithSlotId(slotId, fn)` / `getActiveSlotId()` to pin a subagent's OpenAI-completions
+  requests to a specific llama.cpp slot via `id_slot`, threaded through `AsyncLocalStorage`
+  so parallel in-process subagents carry distinct slot ids without racing.
 
 ### Fixed
 
