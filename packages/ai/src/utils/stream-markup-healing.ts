@@ -85,13 +85,19 @@ export type StreamMarkupHealingEvent =
 type XmlToolState =
 	| { readonly kind: "idle" }
 	| { readonly kind: "section" }
-	| { readonly kind: "invoke"; readonly name: string; readonly args: Record<string, unknown> }
+	| {
+			readonly kind: "invoke";
+			readonly name: string;
+			readonly args: Record<string, unknown>;
+			readonly fromSection: boolean;
+	  }
 	| {
 			readonly kind: "parameter";
 			readonly invokeName: string;
 			readonly args: Record<string, unknown>;
 			readonly paramName: string;
 			readonly isString: boolean;
+			readonly fromSection: boolean;
 			value: string;
 	  };
 
@@ -337,6 +343,7 @@ export class StreamMarkupHealing {
 			parameterOpen: DSML_PARAMETER_OPEN_RE,
 			parameterClose: DSML_PARAMETER_CLOSE_RE,
 			coerceStringByDefault: true,
+			allowBareInvoke: false,
 		});
 	}
 
@@ -353,6 +360,7 @@ export class StreamMarkupHealing {
 			parameterOpen: GENERIC_XML_PARAMETER_OPEN_RE,
 			parameterClose: GENERIC_XML_PARAMETER_CLOSE_RE,
 			coerceStringByDefault: true,
+			allowBareInvoke: true,
 		});
 	}
 
@@ -414,6 +422,7 @@ export class StreamMarkupHealing {
 		readonly parameterOpen: RegExp;
 		readonly parameterClose: RegExp;
 		readonly coerceStringByDefault: boolean;
+		readonly allowBareInvoke: boolean;
 	}): StreamMarkupHealingEvent[] {
 		const events: StreamMarkupHealingEvent[] = [];
 		let clean = "";
@@ -431,6 +440,18 @@ export class StreamMarkupHealing {
 					config.setState({ kind: "section" });
 					continue;
 				}
+				if (config.allowBareInvoke) {
+					const bareInvokeMatch = this.#tryMatchCapture(config.invokeOpen);
+					if (bareInvokeMatch) {
+						config.setState({
+							kind: "invoke",
+							name: bareInvokeMatch[1] ?? "",
+							args: {},
+							fromSection: false,
+						});
+						continue;
+					}
+				}
 			} else if (state.kind === "section") {
 				if (this.#tryMatch(config.sectionClose)) {
 					config.setState({ kind: "idle" });
@@ -439,7 +460,12 @@ export class StreamMarkupHealing {
 				}
 				const invokeMatch = this.#tryMatchCapture(config.invokeOpen);
 				if (invokeMatch) {
-					config.setState({ kind: "invoke", name: invokeMatch[1] ?? "", args: {} });
+					config.setState({
+						kind: "invoke",
+						name: invokeMatch[1] ?? "",
+						args: {},
+						fromSection: true,
+					});
 					continue;
 				}
 			} else if (state.kind === "invoke") {
@@ -447,7 +473,12 @@ export class StreamMarkupHealing {
 					const call = finalizeXmlToolCall(state.name, state.args);
 					flushClean();
 					events.push({ type: "toolCall", call });
-					config.setState({ kind: "section" });
+					if (state.fromSection) {
+						config.setState({ kind: "section" });
+					} else {
+						this.#sectionTerminated = true;
+						config.setState({ kind: "idle" });
+					}
 					continue;
 				}
 				const paramMatch = this.#tryMatchCapture(config.parameterOpen);
@@ -460,12 +491,18 @@ export class StreamMarkupHealing {
 						paramName: paramMatch[1] ?? "",
 						isString: config.coerceStringByDefault ? stringAttr !== "false" : false,
 						value: "",
+						fromSection: state.fromSection,
 					});
 					continue;
 				}
 			} else if (this.#tryMatch(config.parameterClose)) {
 				state.args[state.paramName] = coerceXmlParamValue(state.value, state.isString);
-				config.setState({ kind: "invoke", name: state.invokeName, args: state.args });
+				config.setState({
+					kind: "invoke",
+					name: state.invokeName,
+					args: state.args,
+					fromSection: state.fromSection,
+				});
 				continue;
 			}
 

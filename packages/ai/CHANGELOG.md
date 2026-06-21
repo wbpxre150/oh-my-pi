@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+
+### Fixed
+
+- The `generic-xml` stream-markup healing pattern now recognizes a bare `<function=NAME><parameter=...>...</parameter></function>` tool-call leak that local-inference models emit without the `<antml:invoke>` wrapper. Previously such bare leaks passed through as visible text and never synthesized a tool call, so no retry layer engaged.
 ### Changed
 
 - `getStreamMarkupHealingPattern` now requires `options.localInferenceControl: true` to select the `generic-xml` tool-call-leak healing pattern; cloud providers (openrouter, ollama-cloud, etc.) no longer run the generic-xml stream state machine. The `kimi`, `dsml`, and `thinking` patterns are unaffected.
