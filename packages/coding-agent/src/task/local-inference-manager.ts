@@ -115,27 +115,29 @@ function deriveHealthUrl(config: LocalInferenceConfig, providerBaseUrl: string):
 }
 
 /**
- * Erase the KV cache / checkpoints of one server slot. Best-effort: logs and never
- * throws, so a failed erase cannot poison a subagent's result or block the slot pool.
+ * Erase the KV cache / checkpoints of one server slot. Best-effort: never throws.
+ * Returns true on success (2xx), false on failure (non-2xx or network error).
  *
  * @param providerBaseUrl - baseUrl of the controlled provider (same server that serves
  *   /v1/chat/completions). The /slots endpoint is part of the same llama.cpp server.
  * @param slotId - slot index to erase (0..N-1).
  */
-export async function eraseSlot(providerBaseUrl: string, slotId: number): Promise<void> {
+export async function eraseSlot(providerBaseUrl: string, slotId: number): Promise<boolean> {
 	const url = `${providerBaseUrl.replace(/\/$/, "")}/slots/${slotId}?action=erase`;
 	try {
 		const res = await fetch(url, { method: "POST", signal: AbortSignal.timeout(10_000) });
 		if (!res.ok) {
 			logger.warn("local-inference: slot erase failed", { url, status: res.status });
-			return;
+			return false;
 		}
 		logger.debug("local-inference: slot erased", { slotId });
+		return true;
 	} catch (err) {
 		logger.warn("local-inference: slot erase error", {
 			url,
 			error: err instanceof Error ? err.message : String(err),
 		});
+		return false;
 	}
 }
 

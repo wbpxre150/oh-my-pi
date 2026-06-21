@@ -3,10 +3,11 @@ import { hookFetch } from "@oh-my-pi/pi-utils";
 import { eraseSlot } from "../../src/task/local-inference-manager";
 
 describe("eraseSlot", () => {
-	it("POSTs to {baseUrl}/slots/{id}?action=erase", async () => {
+	it("POSTs to {baseUrl}/slots/{id}?action=erase and returns true", async () => {
 		const fetchSpy = vi.fn(() => new Response("{}", { status: 200 }));
 		using _hook = hookFetch(fetchSpy);
-		await eraseSlot("http://localhost:8080", 2);
+		const result = await eraseSlot("http://localhost:8080", 2);
+		expect(result).toBe(true);
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
 		const [url, init] = fetchSpy.mock.calls[0]!;
 		expect(String(url)).toBe("http://localhost:8080/slots/2?action=erase");
@@ -23,7 +24,7 @@ describe("eraseSlot", () => {
 	it("does not throw on a non-2xx response", async () => {
 		const fetchSpy = vi.fn(() => new Response("nope", { status: 500 }));
 		using _hook = hookFetch(fetchSpy);
-		await expect(eraseSlot("http://localhost:8080", 1)).resolves.toBeUndefined();
+		await expect(eraseSlot("http://localhost:8080", 1)).resolves.toBe(false);
 	});
 
 	it("does not throw on a network error", async () => {
@@ -31,6 +32,6 @@ describe("eraseSlot", () => {
 			throw new Error("ECONNREFUSED");
 		});
 		using _hook = hookFetch(fetchSpy);
-		await expect(eraseSlot("http://localhost:8080", 1)).resolves.toBeUndefined();
+		await expect(eraseSlot("http://localhost:8080", 1)).resolves.toBe(false);
 	});
 });

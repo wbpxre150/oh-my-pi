@@ -1042,6 +1042,9 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 
 			const runTask = async (task: (typeof tasksWithUniqueIds)[number], index: number) => {
 				const slotId = availableSlotIds.length > 0 ? availableSlotIds.pop()! : undefined;
+				if (slotId !== undefined && localInferenceBaseUrl) {
+					await eraseSlot(localInferenceBaseUrl, slotId);
+				}
 				try {
 					if (!isIsolated) {
 						return await runSubprocess({
@@ -1225,8 +1228,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						}
 					}
 				} finally {
-					if (slotId !== undefined && localInferenceBaseUrl) {
-						await eraseSlot(localInferenceBaseUrl, slotId);
+					if (slotId !== undefined) {
 						availableSlotIds.push(slotId);
 					}
 				}

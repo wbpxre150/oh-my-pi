@@ -135,9 +135,9 @@ describe("local-inference slot erase", () => {
 		expect(eraseSlots).toHaveLength(2);
 		expect(new Set(eraseSlots)).toEqual(new Set([0, 1]));
 
-		// each slot erased only after its runSubprocess resolved
+		// each slot erased before its runSubprocess started (clean state on acquire)
 		for (const slot of [0, 1]) {
-			expect(log.indexOf(`run:${slot}`)).toBeLessThan(log.indexOf(`erase:${slot}`));
+			expect(log.indexOf(`erase:${slot}`)).toBeLessThan(log.indexOf(`run:${slot}`));
 		}
 	});
 

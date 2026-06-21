@@ -161,6 +161,10 @@ describe("task slot limit validation", () => {
 
 	it("without local inference active, 2-task task call proceeds (no error)", async () => {
 		mockDiscoverAgents(TASK_AGENT);
+		// The session always has a provider with localInferenceControl:true, so
+		// resolveLocalInferenceProvider will match. Mock the config file as missing
+		// so the slot-limit branch is skipped.
+		vi.spyOn(LocalInferenceConfigFile, "tryLoad").mockReturnValue({ status: "not-found" });
 
 		const tool = await TaskTool.create(createSession());
 		const result = await tool.execute("tool-call", TEST_TASK_2);
