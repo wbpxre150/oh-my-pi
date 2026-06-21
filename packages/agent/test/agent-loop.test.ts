@@ -238,6 +238,56 @@ describe("agentLoop with AgentMessage", () => {
 		expect(final.content).toEqual([{ type: "text", text: prose }]);
 	});
 
+	it("retries server-side parse errors (stopReason=error) inline and recovers", async () => {
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [] };
+		const mock = createMockModel({
+			provider: "openrouter",
+			responses: [
+				{ throw: "Failed to parse input at pos 2181: <function=edit>" },
+				{ content: ["clean retry response"] },
+			],
+		});
+		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
+		const stream = agentLoop([createUserMessage("do the thing")], context, config, undefined, mock.stream);
+		for await (const _event of stream) {
+			// drain
+		}
+		const messages = await stream.result();
+
+		// Two model calls: first (parse error) -> inline retry, second (clean).
+		expect(mock.calls).toHaveLength(2);
+		expect(JSON.stringify(messages.filter(m => !("synthetic" in m)))).not.toContain("Failed to parse input");
+		const final = messages[messages.length - 1];
+		if (final.role !== "assistant") throw new Error("expected assistant message");
+		expect(final.content).toEqual([{ type: "text", text: "clean retry response" }]);
+	});
+
+	it("gives up after 3 parse error retries and surfaces the error", async () => {
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [] };
+		const mock = createMockModel({
+			provider: "openrouter",
+			responses: [
+				{ throw: "Failed to parse input at pos 100: <function=edit>" },
+				{ throw: "Failed to parse input at pos 200: <function=edit>" },
+				{ throw: "Failed to parse input at pos 300: <function=edit>" },
+				{ throw: "Failed to parse input at pos 400: <function=edit>" },
+			],
+		});
+		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
+		const stream = agentLoop([createUserMessage("do the thing")], context, config, undefined, mock.stream);
+		for await (const _event of stream) {
+			// drain
+		}
+		const messages = await stream.result();
+
+		// 4 model calls: initial + 3 retries.
+		expect(mock.calls).toHaveLength(4);
+		const final = messages[messages.length - 1];
+		if (final.role !== "assistant") throw new Error("expected assistant message");
+		expect(final.stopReason).toBe("error");
+		expect(final.errorMessage).toContain("Failed to parse input");
+	});
+
 	it("emits an aborted assistant message when cancellation happens before provider events", async () => {
 		const context: AgentContext = {
 			systemPrompt: ["You are helpful."],

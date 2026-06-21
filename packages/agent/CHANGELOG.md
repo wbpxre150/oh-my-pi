@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Server-side tool-call parse errors (e.g. llama.cpp's "Failed to parse input at pos N") are now retried inline inside the agent loop's `runLoopBody` instead of at the `AgentSession` level. When the inference server rejects the model's generated tool-call syntax, the loop removes the failed turn, appends a steering reminder, and retries up to 3 times before giving up — mirroring the existing `XmlToolCallLeakInterruption` recovery pattern. This keeps the retry at the turn level so subagents don't die and force a costly full respawn by the parent task tool. The redundant `#handleParseError` handler has been removed from `AgentSession` to avoid double-retry compounding.
 - The `XmlToolCallLeakInterruption` backstop in the agent loop now only runs for models whose provider has `localInferenceControl: true` in models.yml. Cloud models no longer pay the per-message XML-leak scan, which caused a stuck CPU core on long streamed responses containing angle brackets (e.g. web-fetched Java/HTML).
 
 - The agent-loop XML-leak backstop now also scans finalized assistant **text** content (not just tool-call argument values) for leaked XML tool-call markup (`<antml:invoke>`, `<function=`, `<parameter=`) and server-side parse-error strings (e.g. llama.cpp's `Failed to parse input at pos N`). Bare `<function=NAME>` leaks that landed in visible text previously bypassed the backstop and never triggered a steering retry; they now engage the same `XmlToolCallLeakInterruption` recovery path. Gated on `localInferenceControl` as before.
