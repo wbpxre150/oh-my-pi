@@ -23,7 +23,6 @@ import type { LocalProtocolOptions } from "../internal-urls";
 import { callTool } from "../mcp/client";
 import type { MCPManager } from "../mcp/manager";
 import type { MnemopiSessionState } from "../mnemopi/state";
-import mcpToolsPrompt from "../prompts/system/mcp-tools.md" with { type: "text" };
 import mcpToolsSubagentPrompt from "../prompts/system/mcp-tools-subagent.md" with { type: "text" };
 import subagentSystemPromptTemplate from "../prompts/system/subagent-system-prompt.md" with { type: "text" };
 import submitReminderTemplate from "../prompts/system/subagent-yield-reminder.md" with { type: "text" };

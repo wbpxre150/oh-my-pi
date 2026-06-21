@@ -13,4 +13,4 @@ Use them instead of native tools for code navigation:
 - Prefer `find_symbol` over `find` to locate a symbol by name.
 - Prefer `get_dependencies` / `get_change_impact` over manual import/callsite tracing.
 
-Only fall back to native tools (`read`, `search`, `find`) if no Token Savior tool covers the operation. `switch_project` is not needed — the parent session has already activated the project.
+Only fall back to native tools (`read`, `search`, `find`) if no Token Savior tool covers the operation. Call `switch_project` to ensure the correct project is active before using these tools — it is idempotent and safe to call even if already activated.
