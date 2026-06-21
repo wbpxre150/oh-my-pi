@@ -518,6 +518,9 @@ async function runLoopBody(
 	let harmonyTruncateResumeCount = 0;
 	let xmlLeakResumeCount = 0;
 	let parseErrorRetryCount = 0;
+	let textToolCallFallback = false;
+	let fallbackAttemptCount = 0;
+	const MAX_FALLBACK_ATTEMPTS = 1;
 
 	// Outer loop: continues when queued follow-up messages arrive after agent would stop
 	while (true) {
@@ -565,6 +568,7 @@ async function runLoopBody(
 					stepCounter,
 					streamFn,
 					harmonyRetryAttempt,
+					textToolCallFallback,
 				);
 				harmonyRetryAttempt = 0;
 				harmonyTruncateResumeCount = 0;
@@ -634,9 +638,32 @@ async function runLoopBody(
 					hasMoreToolCalls = false;
 					continue;
 				}
-				// Retry cap exhausted — fall through to the normal error handler below.
+				// Inline retries exhausted — try text tool-call fallback for local-inference
+				// models. Omit tools from the API request so the server's grammar constraints
+				// are disabled, letting the model emit <function=NAME> XML freely. The
+				// generic-xml stream-markup healing (active for localInferenceControl models)
+				// converts that XML into structured tool-call events on the client side.
+				if (config.model.localInferenceControl === true && fallbackAttemptCount < MAX_FALLBACK_ATTEMPTS) {
+					fallbackAttemptCount++;
+					textToolCallFallback = true;
+					currentContext.messages.pop();
+					newMessages.pop();
+					const fallbackSteeringMsg: UserMessage = {
+						role: "user",
+						content: TEXT_TOOL_CALL_FALLBACK_STEERING_TEXT,
+						synthetic: true,
+						steering: true,
+						timestamp: Date.now(),
+					};
+					pendingMessages = [fallbackSteeringMsg, ...pendingMessages];
+					stream.push({ type: "turn_end", message, toolResults: [] });
+					hasMoreToolCalls = false;
+					continue;
+				}
+				// Retry cap and fallback exhausted — fall through to the normal error handler below.
 			} else {
 				parseErrorRetryCount = 0;
+				textToolCallFallback = false;
 			}
 
 			if (message.stopReason === "error" || message.stopReason === "aborted") {
@@ -923,6 +950,14 @@ const XML_LEAK_STEERING_TEXT =
 const PARSE_ERROR_STEERING_TEXT =
 	"The previous assistant turn was rejected by the inference server because the generated tool-call syntax could not be parsed. " +
 	"Re-emit your response using the correct structured tool-call format. Do not include raw tags like function=, tool_call, or similar XML-style markup in your output. Use the native tool-call interface.";
+const TEXT_TOOL_CALL_FALLBACK_STEERING_TEXT =
+	"The inference server repeatedly failed to parse your structured tool-call output after multiple retries. " +
+	"For this turn, tool definitions have been removed from the API request and the server's " +
+	"structured-output constraints are disabled. Emit tool calls directly in your text output " +
+	"using the format:\n\n" +
+	"<function=TOOL_NAME>\n<parameter=PARAM_NAME>VALUE</parameter>\n</function>\n\n" +
+	"The system will parse and execute these tool calls. Use the exact parameter names from " +
+	"the tool definitions in your system prompt.";
 
 /**
  * Stream an assistant response from the LLM.
@@ -938,6 +973,7 @@ async function streamAssistantResponse(
 	stepCounter: StepCounter,
 	streamFn?: StreamFn,
 	harmonyRetryAttempt = 0,
+	textToolCallFallback = false,
 ): Promise<AssistantMessage> {
 	// Apply context transform if configured (AgentMessage[] → AgentMessage[])
 	let messages = context.messages;
@@ -962,6 +998,14 @@ async function streamAssistantResponse(
 			tools: normalizeTools(context.tools, !!config.intentTracing),
 		};
 	}
+	// Text tool-call fallback: omit tools from the API request so the server
+	// does not apply grammar constraints. The model emits <function=NAME> XML
+	// in its text output, and the generic-xml stream healing converts it to
+	// structured tool-call events. The agent context's tools are unchanged —
+	// they are still used for tool execution after healing.
+	if (textToolCallFallback) {
+		llmContext = { ...llmContext, tools: [] };
+	}
 
 	const streamFunction = streamFn || streamSimple;
 
@@ -980,6 +1024,7 @@ async function streamAssistantResponse(
 	const dynamicReasoning = config.getReasoning?.();
 	const harmonyMitigationEnabled = isHarmonyLeakMitigationTarget(config.model);
 	const xmlLeakScanEnabled =
+		!textToolCallFallback &&
 		config.model.localInferenceControl === true &&
 		modelMayLeakGenericXmlToolCalls(config.model.provider, config.model.id);
 	const harmonyAbortController = harmonyMitigationEnabled ? new AbortController() : undefined;
