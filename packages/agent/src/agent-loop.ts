@@ -60,6 +60,9 @@ import { yieldIfDue } from "./utils/yield";
 /** Sentinel returned by the abort race in `streamAssistantResponse`. */
 const ABORTED: unique symbol = Symbol("agent-loop-aborted");
 
+/** Max inline retries for server-side tool-call parse errors before giving up. */
+const PARSE_ERROR_MAX_RETRIES = 3;
+
 class HarmonyLeakInterruption extends Error {
 	constructor(
 		readonly detection: HarmonyDetection,
@@ -514,6 +517,7 @@ async function runLoopBody(
 	let harmonyRetryAttempt = 0;
 	let harmonyTruncateResumeCount = 0;
 	let xmlLeakResumeCount = 0;
+	let parseErrorRetryCount = 0;
 
 	// Outer loop: continues when queued follow-up messages arrive after agent would stop
 	while (true) {
@@ -604,6 +608,36 @@ async function runLoopBody(
 			}
 			newMessages.push(message);
 			let steeringMessagesFromExecution: AgentMessage[] | undefined;
+
+			// Inline retry for server-side parse errors (e.g. llama.cpp "Failed to parse
+			// input at pos N"). The inference server rejects the model's generated
+			// tool-call syntax; retry the turn with a steering reminder instead of ending
+			// the loop. This keeps the retry at the turn level (inside the agent loop) so
+			// subagents don't die and force a costly full respawn by the parent.
+			if (message.stopReason === "error" && message.errorMessage && isParseError(message.errorMessage)) {
+				if (parseErrorRetryCount < PARSE_ERROR_MAX_RETRIES) {
+					parseErrorRetryCount++;
+					currentContext.messages.pop();
+					newMessages.pop();
+					const steeringMsg: UserMessage = {
+						role: "user",
+						content:
+							PARSE_ERROR_STEERING_TEXT +
+							`\n\nServer error: ${message.errorMessage.slice(0, 500)}\n\n` +
+							`(Parse error retry ${parseErrorRetryCount}/${PARSE_ERROR_MAX_RETRIES})`,
+						synthetic: true,
+						steering: true,
+						timestamp: Date.now(),
+					};
+					pendingMessages = [steeringMsg, ...pendingMessages];
+					stream.push({ type: "turn_end", message, toolResults: [] });
+					hasMoreToolCalls = false;
+					continue;
+				}
+				// Retry cap exhausted — fall through to the normal error handler below.
+			} else {
+				parseErrorRetryCount = 0;
+			}
 
 			if (message.stopReason === "error" || message.stopReason === "aborted") {
 				// Create placeholder tool results for any tool calls in the aborted message
@@ -885,6 +919,10 @@ const XML_LEAK_STEERING_TEXT =
 	"Your previous response embedded XML tool-call markup (such as <function=>, <parameter=>, or <antml:invoke>) " +
 	"instead of using the structured tool-call API. Re-issue your intended tool calls using the native structured " +
 	"tool-call format. Do not emit raw XML tool-call tags in your output.";
+
+const PARSE_ERROR_STEERING_TEXT =
+	"The previous assistant turn was rejected by the inference server because the generated tool-call syntax could not be parsed. " +
+	"Re-emit your response using the correct structured tool-call format. Do not include raw tags like function=, tool_call, or similar XML-style markup in your output. Use the native tool-call interface.";
 
 /**
  * Stream an assistant response from the LLM.

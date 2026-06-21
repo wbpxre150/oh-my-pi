@@ -81,7 +81,6 @@ import {
 	Effort,
 	getSupportedEfforts,
 	isContextOverflow,
-	isParseError,
 	isUsageLimitError,
 	modelsAreEqual,
 	parseRateLimitReason,
@@ -178,7 +177,6 @@ import eagerTodoPrompt from "../prompts/system/eager-todo.md" with { type: "text
 import emptyStopRetryTemplate from "../prompts/system/empty-stop-retry.md" with { type: "text" };
 import ircIncomingTemplate from "../prompts/system/irc-incoming.md" with { type: "text" };
 import mcpToolsPrompt from "../prompts/system/mcp-tools.md" with { type: "text" };
-import parseErrorRetryTemplate from "../prompts/system/parse-error-retry.md" with { type: "text" };
 import planModeActivePrompt from "../prompts/system/plan-mode-active.md" with { type: "text" };
 import planModeReferencePrompt from "../prompts/system/plan-mode-reference.md" with { type: "text" };
 import planModeToolDecisionReminderPrompt from "../prompts/system/plan-mode-tool-decision-reminder.md" with {
@@ -289,7 +287,6 @@ export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
 export type AsyncJobSnapshotItem = Pick<AsyncJob, "id" | "type" | "status" | "label" | "startTime">;
 
 const EMPTY_STOP_MAX_RETRIES = 3;
-const PARSE_ERROR_MAX_RETRIES = 3;
 const NON_WHITESPACE_RE = /\S/;
 
 function hasNonWhitespace(value: string): boolean {
@@ -1048,7 +1045,6 @@ export class AgentSession {
 	#pendingRewindReport: string | undefined = undefined;
 	#lastSuccessfulYieldToolCallId: string | undefined = undefined;
 	#emptyStopRetryCount = 0;
-	#parseErrorRetryCount = 0;
 	#promptGeneration = 0;
 	#providerSessionState = new Map<string, ProviderSessionState>();
 	#hindsightSessionState: HindsightSessionState | undefined = undefined;
@@ -1967,10 +1963,6 @@ export class AgentSession {
 				return;
 			}
 			this.#lastSuccessfulYieldToolCallId = undefined;
-
-			if (await this.#handleParseError(msg)) {
-				return;
-			}
 
 			if (await this.#handleEmptyAssistantStop(msg)) {
 				return;
@@ -4509,7 +4501,6 @@ export class AgentSession {
 			// Reset todo reminder count on new user prompt
 			this.#todoReminderCount = 0;
 			this.#emptyStopRetryCount = 0;
-			this.#parseErrorRetryCount = 0;
 
 			await this.#maybeRestoreRetryFallbackPrimary();
 
@@ -6561,55 +6552,6 @@ export class AgentSession {
 			.reverse()
 			.find((content): content is ToolCall => content.type === "toolCall");
 		return lastToolCall?.name === "yield" && lastToolCall.id === toolCallId;
-	}
-
-	async #handleParseError(assistantMessage: AssistantMessage): Promise<boolean> {
-		if (
-			assistantMessage.stopReason !== "error" ||
-			!assistantMessage.errorMessage ||
-			!isParseError(assistantMessage.errorMessage)
-		) {
-			this.#parseErrorRetryCount = 0;
-			return false;
-		}
-
-		this.#parseErrorRetryCount++;
-		if (this.#parseErrorRetryCount > PARSE_ERROR_MAX_RETRIES) {
-			logger.warn("Assistant output failed to parse after retry cap", {
-				attempts: this.#parseErrorRetryCount - 1,
-				model: assistantMessage.model,
-				provider: assistantMessage.provider,
-			});
-			this.#parseErrorRetryCount = 0;
-			return false;
-		}
-
-		const messages = this.agent.state.messages;
-		if (
-			messages.length > 0 &&
-			messages[messages.length - 1].role === "assistant" &&
-			this.#isSameAssistantMessage(messages[messages.length - 1] as AssistantMessage, assistantMessage)
-		) {
-			this.agent.replaceMessages(messages.slice(0, -1));
-		}
-
-		const truncatedError = assistantMessage.errorMessage.slice(0, 500);
-		this.agent.appendMessage({
-			role: "developer",
-			content: [{ type: "text", text: this.#parseErrorRetryReminder(truncatedError) }],
-			attribution: "agent",
-			timestamp: Date.now(),
-		});
-		this.#scheduleAgentContinue({ generation: this.#promptGeneration });
-		return true;
-	}
-
-	#parseErrorRetryReminder(errorMessage: string): string {
-		return prompt.render(parseErrorRetryTemplate, {
-			errorMessage,
-			retryCount: this.#parseErrorRetryCount,
-			maxRetries: PARSE_ERROR_MAX_RETRIES,
-		});
 	}
 
 	async #handleEmptyAssistantStop(assistantMessage: AssistantMessage): Promise<boolean> {
