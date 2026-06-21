@@ -943,6 +943,13 @@ export interface Model<TApi extends Api = any> {
 	 * for hosted/cloud providers.
 	 */
 	localInferenceControl?: boolean;
+	/**
+	 * Request timeout in milliseconds for this model/provider. When set, overrides the
+	 * default stream first-event and idle timeouts. Useful for slow local inference
+	 * servers (e.g. llama.cpp with full KV cache recompute) that need longer to produce
+	 * the first token. Configured via `providers.<name>.timeout` in models.yml.
+	 */
+	timeout?: number;
 	/** Hint that websocket transport should be preferred when supported by the provider implementation. */
 	preferWebsockets?: boolean;
 	/** Preferred model to switch to when context promotion is triggered (model id or provider/id). */

@@ -154,6 +154,8 @@ const ProviderConfigSchema = z.object({
 	models: z.array(ModelDefinitionSchema).optional(),
 	modelOverrides: z.record(z.string(), ModelOverrideSchema).optional(),
 	disableStrictTools: z.boolean().optional(),
+	/** Request timeout in milliseconds for this provider's API calls. Overrides defaults. */
+	timeout: z.number().positive().optional(),
 	/**
 	 * Streaming transport override. When set to `"pi-native"`, omp dispatches
 	 * every model under this provider via the auth-gateway's

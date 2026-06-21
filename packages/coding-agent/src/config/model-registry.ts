@@ -319,7 +319,6 @@ export const ModelsConfigFile = new ConfigFile<ModelsConfig>("models", ModelsCon
 	},
 );
 
-/** Provider override config (baseUrl, headers, apiKey, compat, transport) without custom models */
 interface ProviderOverride {
 	baseUrl?: string;
 	headers?: Record<string, string>;
@@ -328,6 +327,7 @@ interface ProviderOverride {
 	compat?: Model<Api>["compat"];
 	transport?: Model<Api>["transport"];
 	localInferenceControl?: boolean;
+	timeout?: number;
 }
 
 /**
@@ -349,7 +349,7 @@ interface ProviderOverride {
 export function mergeDiscoveredModel<TApi extends Api>(
 	model: Model<TApi>,
 	existing: Model<Api> | undefined,
-	providerOverride?: Pick<ProviderOverride, "baseUrl" | "headers" | "transport" | "localInferenceControl">,
+	providerOverride?: Pick<ProviderOverride, "baseUrl" | "headers" | "transport" | "localInferenceControl" | "timeout">,
 ): Model<TApi> {
 	if (existing) {
 		return {
@@ -357,6 +357,7 @@ export function mergeDiscoveredModel<TApi extends Api>(
 			baseUrl: providerOverride?.baseUrl ?? model.baseUrl ?? existing.baseUrl,
 			headers: existing.headers ? { ...existing.headers, ...model.headers } : model.headers,
 			...(providerOverride?.localInferenceControl ? { localInferenceControl: true } : {}),
+			...(providerOverride?.timeout !== undefined ? { timeout: providerOverride.timeout } : {}),
 		};
 	}
 	if (providerOverride) {
@@ -366,6 +367,7 @@ export function mergeDiscoveredModel<TApi extends Api>(
 			headers: providerOverride.headers ? { ...model.headers, ...providerOverride.headers } : model.headers,
 			...(providerOverride.transport !== undefined ? { transport: providerOverride.transport } : {}),
 			...(providerOverride.localInferenceControl ? { localInferenceControl: true } : {}),
+			...(providerOverride.timeout !== undefined ? { timeout: providerOverride.timeout } : {}),
 		};
 	}
 	return model;
@@ -1352,7 +1354,6 @@ export class ModelRegistry {
 		const configuredProviders = new Set(Object.keys(value.providers ?? {}));
 
 		for (const [providerName, providerConfig] of providerEntries) {
-			// Always set overrides when baseUrl/headers/apiKey/authHeader/compat/disableStrictTools/transport are present
 			if (
 				providerConfig.baseUrl ||
 				providerConfig.headers ||
@@ -1361,7 +1362,8 @@ export class ModelRegistry {
 				providerConfig.compat ||
 				providerConfig.disableStrictTools ||
 				providerConfig.transport ||
-				providerConfig.localInferenceControl
+				providerConfig.localInferenceControl ||
+				providerConfig.timeout !== undefined
 			) {
 				const disableStrictCompat = providerConfig.disableStrictTools ? { disableStrictTools: true } : undefined;
 				overrides.set(providerName, {
@@ -1372,6 +1374,7 @@ export class ModelRegistry {
 					compat: mergeCompat(providerConfig.compat, disableStrictCompat),
 					transport: providerConfig.transport,
 					localInferenceControl: providerConfig.localInferenceControl === true ? true : undefined,
+					timeout: providerConfig.timeout,
 				});
 			}
 
@@ -2071,7 +2074,6 @@ export class ModelRegistry {
 			return applyModelOverride(model, override);
 		});
 	}
-
 	#mergeProviderOverride(baseOverride: ProviderOverride | undefined, override: ProviderOverride): ProviderOverride {
 		return {
 			baseUrl: override.baseUrl ?? baseOverride?.baseUrl,
@@ -2081,13 +2083,14 @@ export class ModelRegistry {
 			compat: override.compat ? mergeCompat(baseOverride?.compat, override.compat) : baseOverride?.compat,
 			transport: override.transport ?? baseOverride?.transport,
 			localInferenceControl: override.localInferenceControl ?? baseOverride?.localInferenceControl,
+			timeout: override.timeout ?? baseOverride?.timeout,
 		};
 	}
 	#applyProviderTransportOverride<T extends { baseUrl?: string; headers?: Record<string, string> }>(
 		entry: T,
 		override: Pick<
 			ProviderOverride,
-			"baseUrl" | "headers" | "authHeader" | "apiKey" | "transport" | "localInferenceControl"
+			"baseUrl" | "headers" | "authHeader" | "apiKey" | "transport" | "localInferenceControl" | "timeout"
 		>,
 	): T {
 		const headers = mergeAuthHeader(
@@ -2103,6 +2106,7 @@ export class ModelRegistry {
 			// providers without a `transport` field keep the default per-API dispatch.
 			...(override.transport !== undefined ? { transport: override.transport } : {}),
 			...(override.localInferenceControl ? { localInferenceControl: true } : {}),
+			...(override.timeout !== undefined ? { timeout: override.timeout } : {}),
 		};
 	}
 	#applyRuntimeProviderOverrides(models: Model<Api>[]): Model<Api>[] {
@@ -2114,17 +2118,21 @@ export class ModelRegistry {
 		});
 	}
 	/**
-	 * Stamp `localInferenceControl: true` on models whose providers are marked
-	 * in models.yml. Built-in models get the flag via #applyProviderTransportOverride;
-	 * custom models from models.json are parsed into overlays that bypass that path,
-	 * so this catch-all stamps the flag on the final merged list.
+	 * Stamp `localInferenceControl: true` and propagate `timeout` on models
+	 * whose providers are marked in models.yml. Built-in models get these flags
+	 * via #applyProviderTransportOverride; custom models from models.json are
+	 * parsed into overlays that bypass that path, so this catch-all stamps
+	 * them on the final merged list.
 	 */
 	#applyProviderLocalInferenceFlags(models: Model<Api>[]): Model<Api>[] {
 		if (this.#providerOverrides.size === 0) return models;
 		return models.map(model => {
 			const override = this.#providerOverrides.get(model.provider);
-			if (!override?.localInferenceControl) return model;
-			return { ...model, localInferenceControl: true };
+			if (!override) return model;
+			const result: Model<Api> = { ...model };
+			if (override.localInferenceControl) result.localInferenceControl = true;
+			if (override.timeout !== undefined) result.timeout = override.timeout;
+			return result;
 		});
 	}
 	#applyModelOverrides(models: Model<Api>[], overrides: Map<string, Map<string, ModelOverride>>): Model<Api>[] {
@@ -2663,6 +2671,8 @@ export interface ProviderConfigInput {
 	authHeader?: boolean;
 	/** Streaming transport override — see {@link Model.transport}. */
 	transport?: Model<Api>["transport"];
+	/** Request timeout in milliseconds for this provider's API calls. */
+	timeout?: number;
 	oauth?: {
 		name: string;
 		login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials | string>;

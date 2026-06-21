@@ -764,8 +764,12 @@ function mapOptionsForApi<TApi extends Api>(
 		taskBudget: options?.taskBudget,
 		sessionId: options?.sessionId,
 		promptCacheKey: options?.promptCacheKey,
-		streamFirstEventTimeoutMs: options?.streamFirstEventTimeoutMs,
-		streamIdleTimeoutMs: options?.streamIdleTimeoutMs,
+		// When model has a configured timeout and the caller didn't explicitly set
+		// stream timeouts, use model.timeout as the default for both. This lets
+		// models.yml `providers.<name>.timeout` override the defaults (2min idle,
+		// 100s first-event) for slow local inference servers.
+		streamFirstEventTimeoutMs: options?.streamFirstEventTimeoutMs ?? model.timeout,
+		streamIdleTimeoutMs: options?.streamIdleTimeoutMs ?? model.timeout,
 		providerSessionState: options?.providerSessionState,
 		onPayload: options?.onPayload,
 		onResponse: options?.onResponse,
