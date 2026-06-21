@@ -288,6 +288,146 @@ describe("agentLoop with AgentMessage", () => {
 		expect(final.errorMessage).toContain("Failed to parse input");
 	});
 
+	it("enters text tool-call fallback after parse errors exhaust, for localInferenceControl models", async () => {
+		const toolSchema = z.object({ content: z.string() });
+		const tool: AgentTool<typeof toolSchema, { content: string }> = {
+			name: "write",
+			label: "Write",
+			description: "Write tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, _params) {
+				return { content: [{ type: "text", text: "ok" }] };
+			},
+		};
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [tool] };
+		// 4 parse errors (initial + 3 retries), then a clean response simulating
+		// what the generic-xml stream healing would produce: a toolCall block
+		// emitted as a normal "done" event, not an error. The 6th response is the
+		// normal continuation after the tool result is fed back.
+		const mock = createMockModel({
+			provider: "llamacpp",
+			localInferenceControl: true,
+			responses: [
+				{ throw: "Failed to parse input at pos 100: <function=write>" },
+				{ throw: "Failed to parse input at pos 200: <function=write>" },
+				{ throw: "Failed to parse input at pos 300: <function=write>" },
+				{ throw: "Failed to parse input at pos 400: <function=write>" },
+				{ content: [{ type: "toolCall", id: "tool-1", name: "write", arguments: { content: "hello" } }] },
+				{ content: ["fallback worked"] },
+			],
+		});
+		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
+		const stream = agentLoop([createUserMessage("write a file")], context, config, undefined, mock.stream);
+		for await (const _event of stream) {
+			// drain
+		}
+		const messages = await stream.result();
+
+		// 6 model calls: initial + 3 retries + 1 fallback turn + 1 continuation after tool result.
+		expect(mock.calls).toHaveLength(6);
+		const final = messages[messages.length - 1];
+		if (final.role !== "assistant") throw new Error("expected assistant message");
+		expect(final.content).toEqual([{ type: "text", text: "fallback worked" }]);
+	});
+
+	it("does not enter fallback for cloud models (no localInferenceControl)", async () => {
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [] };
+		const mock = createMockModel({
+			provider: "openrouter",
+			responses: [
+				{ throw: "Failed to parse input at pos 100: <function=edit>" },
+				{ throw: "Failed to parse input at pos 200: <function=edit>" },
+				{ throw: "Failed to parse input at pos 300: <function=edit>" },
+				{ throw: "Failed to parse input at pos 400: <function=edit>" },
+			],
+		});
+		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
+		const stream = agentLoop([createUserMessage("do the thing")], context, config, undefined, mock.stream);
+		for await (const _event of stream) {
+			// drain
+		}
+		const messages = await stream.result();
+
+		// 4 model calls: initial + 3 retries. No fallback (cloud model).
+		expect(mock.calls).toHaveLength(4);
+		const final = messages[messages.length - 1];
+		if (final.role !== "assistant") throw new Error("expected assistant message");
+		expect(final.stopReason).toBe("error");
+		expect(final.errorMessage).toContain("Failed to parse input");
+	});
+
+	it("surfaces error when fallback turn also fails with a parse error", async () => {
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [] };
+		const mock = createMockModel({
+			provider: "llamacpp",
+			localInferenceControl: true,
+			responses: [
+				{ throw: "Failed to parse input at pos 100: <function=write>" },
+				{ throw: "Failed to parse input at pos 200: <function=write>" },
+				{ throw: "Failed to parse input at pos 300: <function=write>" },
+				{ throw: "Failed to parse input at pos 400: <function=write>" },
+				{ throw: "Failed to parse input at pos 500: <function=write>" },
+			],
+		});
+		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
+		const stream = agentLoop([createUserMessage("write a file")], context, config, undefined, mock.stream);
+		for await (const _event of stream) {
+			// drain
+		}
+		const messages = await stream.result();
+
+		// 5 model calls: initial + 3 retries + 1 fallback (which also fails).
+		// No further retries after the fallback fails.
+		expect(mock.calls).toHaveLength(5);
+		const final = messages[messages.length - 1];
+		if (final.role !== "assistant") throw new Error("expected assistant message");
+		expect(final.stopReason).toBe("error");
+		expect(final.errorMessage).toContain("Failed to parse input");
+	});
+
+	it("resets fallback mode after a successful fallback turn", async () => {
+		const toolSchema = z.object({ content: z.string() });
+		const executed: string[] = [];
+		const tool: AgentTool<typeof toolSchema, { content: string }> = {
+			name: "write",
+			label: "Write",
+			description: "Write tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				executed.push(params.content);
+				return { content: [{ type: "text", text: "ok" }] };
+			},
+		};
+		const context: AgentContext = { systemPrompt: [""], messages: [], tools: [tool] };
+		// 4 parse errors -> fallback -> success -> another normal turn
+		const mock = createMockModel({
+			provider: "llamacpp",
+			localInferenceControl: true,
+			responses: [
+				{ throw: "Failed to parse input at pos 100: <function=write>" },
+				{ throw: "Failed to parse input at pos 200: <function=write>" },
+				{ throw: "Failed to parse input at pos 300: <function=write>" },
+				{ throw: "Failed to parse input at pos 400: <function=write>" },
+				{ content: [{ type: "toolCall", id: "tool-1", name: "write", arguments: { content: "fallback output" } }] },
+				{ content: ["done after fallback"] },
+			],
+		});
+		const config: AgentLoopConfig = { model: mock.model, convertToLlm: identityConverter };
+		const stream = agentLoop([createUserMessage("write a file")], context, config, undefined, mock.stream);
+		for await (const _event of stream) {
+			// drain
+		}
+		const messages = await stream.result();
+
+		// Fallback turn (call 5) succeeded with a tool call, then the tool result
+		// was fed back and the model produced a final text response (call 6).
+		expect(mock.calls).toHaveLength(6);
+		expect(executed).toEqual(["fallback output"]);
+		const final = messages[messages.length - 1];
+		if (final.role !== "assistant") throw new Error("expected assistant message");
+		expect(final.content).toEqual([{ type: "text", text: "done after fallback" }]);
+	});
+
 	it("emits an aborted assistant message when cancellation happens before provider events", async () => {
 		const context: AgentContext = {
 			systemPrompt: ["You are helpful."],
