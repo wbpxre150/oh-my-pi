@@ -107,6 +107,7 @@ export interface InteractiveModeContext {
 	goalModeEnabled: boolean;
 	goalModePaused: boolean;
 	loopModeEnabled: boolean;
+	debugModeEnabled: boolean;
 	loopPrompt?: string;
 	loopLimit?: LoopLimitRuntime;
 	planModePlanFilePath?: string;
@@ -312,6 +313,7 @@ export interface InteractiveModeContext {
 	openExternalEditor(): void;
 	registerExtensionShortcuts(): void;
 	handlePlanModeCommand(initialPrompt?: string): Promise<void>;
+	handleDebugModeCommand(initialPrompt?: string): Promise<void>;
 	handleGoalModeCommand(rest?: string): Promise<void>;
 	handleLoopCommand(args?: string): Promise<void>;
 	disableLoopMode(): void;

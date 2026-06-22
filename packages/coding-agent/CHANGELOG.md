@@ -14,6 +14,8 @@
 
 - Added a `debug` bundled agent with all 31 Token Savior MCP tools pre-activated, the MCP code navigation prompt injected, and the DAP `debug` tool available. Bakes in debugging rules (read code first, reproduce, use DAP breakpoints, one-pass fix) so the user does not have to re-type them. Inherits the parent model and is blocking.
 
+- `/db` slash command toggles debug mode: activates Token Savior MCP tools and the DAP debug tool, injects a find-and-report system prompt, and writes a bug report to `BUG-REPORT.md` in the project root. Mutually exclusive with plan and goal modes.
+
 ### Changed
 
 - Removed the Token Savior MCP activation prompt from the main agent's system prompt. The main agent no longer calls `search_tool_bm25` and `switch_project` on every task. MCP tools are still available via manual `search_tool_bm25` discovery, and plan mode retains MCP. The plan-mode active prompt now explicitly instructs the planner that stage files MUST NOT reference MCP tools for task subagents (which have MCP disabled).

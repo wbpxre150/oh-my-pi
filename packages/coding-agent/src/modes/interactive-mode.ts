@@ -294,6 +294,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	goalModePaused = false;
 	planModePlanFilePath: string | undefined = undefined;
 	loopModeEnabled = false;
+	debugModeEnabled = false;
+	#debugModePreviousTools: string[] | undefined;
 	loopPrompt: string | undefined = undefined;
 	loopLimit: LoopLimitRuntime | undefined = undefined;
 	#loopAutoSubmitTimer: NodeJS.Timeout | undefined;
@@ -1299,6 +1301,13 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.ui.requestRender();
 	}
 
+	#updateDebugModeStatus(): void {
+		const status = this.debugModeEnabled ? { enabled: this.debugModeEnabled } : undefined;
+		this.statusLine.setDebugModeStatus(status);
+		this.updateEditorTopBorder();
+		this.ui.requestRender();
+	}
+
 	#resetGoalContinuationSuppression(): void {
 		this.#goalSuppressNextContinuation = false;
 	}
@@ -1458,6 +1467,16 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.#cancelGoalContinuation();
 			this.#updateGoalModeStatus();
 		}
+
+		if (this.debugModeEnabled) {
+			if (this.#debugModePreviousTools !== undefined) {
+				await this.session.setActiveToolsByName(this.#debugModePreviousTools);
+			}
+			this.session.setDebugModeState(undefined);
+			this.debugModeEnabled = false;
+			this.#debugModePreviousTools = undefined;
+			this.#updateDebugModeStatus();
+		}
 	}
 
 	/** Reconcile mode state from session entries on resume/switch. */
@@ -1509,6 +1528,9 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.#planModeHasEntered = true;
 			this.#updatePlanModeStatus();
 		}
+		if (sessionContext.mode === "debug") {
+			await this.#enterDebugMode();
+		}
 	}
 
 	async #enterPlanMode(options?: { planFilePath?: string; workflow?: "parallel" | "iterative" }): Promise<void> {
@@ -1517,6 +1539,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 		if (this.goalModeEnabled || this.goalModePaused) {
 			this.showWarning("Exit goal mode first.");
+			return;
+		}
+		if (this.debugModeEnabled) {
+			this.showWarning("Exit debug mode first.");
 			return;
 		}
 
@@ -1634,12 +1660,63 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 	}
 
+	async #enterDebugMode(): Promise<void> {
+		if (this.debugModeEnabled) {
+			return;
+		}
+
+		const previousTools = this.session.getActiveToolNames();
+		this.#debugModePreviousTools = previousTools;
+		this.debugModeEnabled = true;
+
+		// Build debug tool set: previous tools minus edit/ast_edit, plus debug tool
+		const debugToolSet = previousTools.filter(name => name !== "edit" && name !== "ast_edit");
+		if (!debugToolSet.includes("debug")) {
+			debugToolSet.push("debug");
+		}
+		await this.session.setActiveToolsByName(debugToolSet);
+
+		// Activate all discoverable MCP tools (Token Savior)
+		await this.session.activateAllDiscoverableMCPTools();
+
+		this.session.setDebugModeState({ enabled: true });
+		if (this.session.isStreaming) {
+			await this.session.sendDebugModeContext({ deliverAs: "steer" });
+		}
+		this.#updateDebugModeStatus();
+		this.sessionManager.appendModeChange("debug");
+		this.showStatus("Debug mode enabled. Find and report bugs to BUG-REPORT.md.");
+	}
+
+	async #exitDebugMode(options?: { silent?: boolean }): Promise<void> {
+		if (!this.debugModeEnabled) {
+			return;
+		}
+
+		const previousTools = this.#debugModePreviousTools;
+		if (previousTools && previousTools.length > 0) {
+			await this.session.setActiveToolsByName(previousTools);
+		}
+		this.session.setDebugModeState(undefined);
+		this.debugModeEnabled = false;
+		this.#debugModePreviousTools = undefined;
+		this.#updateDebugModeStatus();
+		this.sessionManager.appendModeChange("none");
+		if (!options?.silent) {
+			this.showStatus("Debug mode disabled.");
+		}
+	}
+
 	async #enterGoalMode(options: { objective?: string; resume?: boolean; silent?: boolean }): Promise<void> {
 		if (this.goalModeEnabled) {
 			return;
 		}
 		if (this.planModeEnabled || this.planModePaused) {
 			this.showWarning("Exit plan mode first.");
+			return;
+		}
+		if (this.debugModeEnabled) {
+			this.showWarning("Exit debug mode first.");
 			return;
 		}
 		const previousTools = this.session.getActiveToolNames().filter(name => name !== "goal");
@@ -2063,6 +2140,10 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.showWarning("Exit goal mode first.");
 			return;
 		}
+		if (this.debugModeEnabled) {
+			this.showWarning("Exit debug mode first.");
+			return;
+		}
 		if (this.planModeEnabled) {
 			const confirmed = await this.showHookConfirm(
 				"Exit plan mode?",
@@ -2077,6 +2158,27 @@ export class InteractiveMode implements InteractiveModeContext {
 			return;
 		}
 		await this.#enterPlanMode();
+		if (initialPrompt && this.onInputCallback) {
+			this.onInputCallback(this.startPendingSubmission({ text: initialPrompt }));
+		}
+	}
+
+	async handleDebugModeCommand(initialPrompt?: string): Promise<void> {
+		if (this.planModeEnabled || this.planModePaused) {
+			this.showWarning("Exit plan mode first.");
+			return;
+		}
+		if (this.goalModeEnabled || this.goalModePaused) {
+			this.showWarning("Exit goal mode first.");
+			return;
+		}
+		if (this.debugModeEnabled) {
+			const confirmed = await this.showHookConfirm("Exit debug mode?", "This exits debug mode.");
+			if (!confirmed) return;
+			await this.#exitDebugMode();
+			return;
+		}
+		await this.#enterDebugMode();
 		if (initialPrompt && this.onInputCallback) {
 			this.onInputCallback(this.startPendingSubmission({ text: initialPrompt }));
 		}
@@ -2110,6 +2212,10 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	async handleGoalModeCommand(rest?: string): Promise<void> {
 		try {
+			if (this.debugModeEnabled) {
+				this.showWarning("Exit debug mode first.");
+				return;
+			}
 			if (this.planModeEnabled || this.planModePaused) {
 				this.showWarning("Exit plan mode first.");
 				return;

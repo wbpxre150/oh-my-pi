@@ -101,6 +101,21 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
+		name: "db",
+		description: "Toggle debug mode (agent finds and reports bugs)",
+		inlineHint: "[prompt]",
+		allowArgs: true,
+		handleTui: async (command, runtime) => {
+			const hadArgs = !!command.args;
+			const wasDebugModeEnabled = runtime.ctx.debugModeEnabled;
+			await runtime.ctx.handleDebugModeCommand(command.args || undefined);
+			if (hadArgs && wasDebugModeEnabled) {
+				runtime.ctx.editor.addToHistory(command.text);
+			}
+			runtime.ctx.editor.setText("");
+		},
+	},
+	{
 		name: "goal",
 		description: "Toggle goal mode (persistent autonomous objective for this session)",
 		subcommands: [
