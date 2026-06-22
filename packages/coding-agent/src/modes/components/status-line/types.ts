@@ -31,6 +31,9 @@ export interface SegmentContext {
 		enabled: boolean;
 		paused: boolean;
 	} | null;
+	debugMode: {
+		enabled: boolean;
+	} | null;
 	// Cached values for performance (computed once per render)
 	usageStats: {
 		input: number;

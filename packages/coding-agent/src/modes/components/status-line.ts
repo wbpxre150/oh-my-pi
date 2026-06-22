@@ -160,6 +160,7 @@ export class StatusLineComponent implements Component {
 	#planModeStatus: { enabled: boolean; paused: boolean } | null = null;
 	#loopModeStatus: { enabled: boolean } | null = null;
 	#goalModeStatus: { enabled: boolean; paused: boolean } | null = null;
+	#debugModeStatus: { enabled: boolean } | null = null;
 
 	// Git status caching (1s TTL)
 	#cachedGitStatus: { staged: number; unstaged: number; untracked: number } | null = null;
@@ -239,6 +240,10 @@ export class StatusLineComponent implements Component {
 
 	setGoalModeStatus(status: { enabled: boolean; paused: boolean } | undefined): void {
 		this.#goalModeStatus = status ?? null;
+	}
+
+	setDebugModeStatus(status: { enabled: boolean } | undefined): void {
+		this.#debugModeStatus = status ?? null;
 	}
 
 	setHookStatus(key: string, text: string | undefined): void {
@@ -590,6 +595,7 @@ export class StatusLineComponent implements Component {
 			planMode: this.#planModeStatus,
 			loopMode: this.#loopModeStatus,
 			goalMode: this.#goalModeStatus,
+			debugMode: this.#debugModeStatus,
 			usageStats,
 			contextPercent,
 			contextWindow,

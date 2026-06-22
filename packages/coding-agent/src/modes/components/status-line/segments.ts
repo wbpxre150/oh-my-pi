@@ -176,6 +176,11 @@ const modeSegment: StatusLineSegment = {
 			return { content: theme.fg("customMessageLabel", content), visible: true };
 		}
 
+		const debug = ctx.debugMode;
+		if (debug?.enabled) {
+			const content = withIcon(theme.icon.debug, "Debug");
+			return { content: theme.fg("accent", content), visible: true };
+		}
 		return { content: "", visible: false };
 	},
 };
