@@ -67,6 +67,7 @@ class FakeDapClient {
 			attachError?: string;
 			attachErrorDelayMs?: number;
 			configurationDoneError?: string;
+			configurationDoneNeverResponds?: boolean;
 			rejectStopWaiters?: boolean;
 		},
 	) {
@@ -101,6 +102,9 @@ class FakeDapClient {
 		}
 		if (command === "configurationDone" && this.options.configurationDoneError) {
 			throw new Error(this.options.configurationDoneError);
+		}
+		if (command === "configurationDone" && this.options.configurationDoneNeverResponds) {
+			return new Promise<unknown>(() => {});
 		}
 		return {};
 	}
@@ -336,6 +340,18 @@ describe("DAP launch failure handling", () => {
 			await client?.dispose();
 			await fs.rm(cwd, { recursive: true, force: true });
 		}
+	});
+
+	it("succeeds when the adapter never responds to configurationDone", async () => {
+		const manager = new DapSessionManager();
+		const fake = new FakeDapClient(TEST_ADAPTER, process.cwd(), {
+			configurationDoneNeverResponds: true,
+			rejectStopWaiters: true,
+		});
+		spyOn(DapClient, "spawn").mockResolvedValue(fake as unknown as DapClient);
+
+		const snapshot = await manager.attach({ adapter: TEST_ADAPTER, cwd: process.cwd(), pid: 123 });
+		expect(snapshot.adapter).toBe(TEST_ADAPTER.name);
 	});
 });
 
