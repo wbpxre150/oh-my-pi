@@ -6,6 +6,7 @@ Use for launching or attaching debuggers, setting breakpoints, stepping through 
 - `action: "launch"` starts a session; `program` is required, `adapter` optional (auto-selected from target path and workspace).
   For Python, set `adapter: "debugpy"` and `program` to the target `.py` file; put interpreter/script flags in `args`.
 - `action: "attach"` connects to an existing process: `pid` for local attach, `port` for remote attach (where the adapter supports it), `adapter` to force a specific debugger.
+- `action: "attach"` with no `pid`/`port` auto-detects Android (Kotlin) projects on a connected device: it resolves the running app's PID over ADB, forwards a localhost port to the device's per-app JDWP socket (`adb forward tcp:<port> jdwp:<pid>`), and attaches `kotlin-debug-adapter` to it with the project root as the source map. The app must be installed as a debug build (`run-as` must succeed). If the app is not running it is auto-started. No extra params needed; just call `attach` from the Android project root.
 - **Breakpoints**: `set_breakpoint`/`remove_breakpoint` with source (`file`+`line`) or function (`function`); optional `condition` for conditional breakpoints.
 - **Flow control**: `continue` (resumes; briefly waits to observe whether the program stops or keeps running), `step_over`/`step_in`/`step_out` (single-step), `pause` (interrupt a running program so you can inspect state).
 - **Inspect**: `threads` (list), `stack_trace` (frames for current stopped thread), `scopes` (needs `frame_id` or a current stopped frame), `variables` (needs `variable_ref` or `scope_id`), `evaluate` (needs `expression`; `context: "repl"` for raw debugger commands when the adapter supports them), `output` (captured stdout/stderr/console), `sessions` (tracked debug sessions), `terminate`.
@@ -31,4 +32,6 @@ Use for launching or attaching debuggers, setting breakpoints, stepping through 
 `debug(action: "launch", adapter: "debugpy", program: "scripts/job.py", args: ["--flag"])`
 # Raw debugger command through repl
 `debug(action: "evaluate", expression: "info registers", context: "repl")`
+# Attach to a running Android (Kotlin) app on a connected device
+`debug(action: "attach")`
 </examples>

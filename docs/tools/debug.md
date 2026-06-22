@@ -151,6 +151,7 @@ Side-channel artifacts outside the model tool result:
 - **Adapter selection**
   - `launch`: explicit `adapter` wins; otherwise `selectLaunchAdapter()` ranks available adapters by extension match, root-marker match, then native-debugger preference (`gdb`, `lldb-dap`) for extensionless binaries.
   - `attach`: explicit `adapter` wins; otherwise remote `port` prefers `debugpy`, then native debuggers, then first available adapter.
+  - **Android (ADB + JDWP) auto-attach**: when `attach` is called with no `pid`/`port` and no explicit non-kotlin `adapter` from a project containing `app/build.gradle(.kts)` with an `applicationId`, `resolveAndroidAttach` (`packages/coding-agent/src/dap/android.ts`) detects the Android project, verifies a device is online (`adb devices`), confirms the app is installed and debuggable (`adb shell run-as <appId> id`), resolves the running PID (`adb shell pidof <appId>`, auto-starting via `adb shell monkey -p <appId> -c android.intent.category.LAUNCHER 1` if absent), reserves a free localhost port, and runs `adb forward tcp:<port> jdwp:<pid>`. It forces `kotlin-debug-adapter` and injects `hostName`/`port`/`projectRoot`/`timeout` as `extraAttachArguments`; the `adb forward --remove` runs as the session `onDispose`. Non-Android projects fall through to the normal pid/port-required path; explicit `pid`/`port` or a non-kotlin `adapter` skips auto-resolution.
 - **Transport**
   - stdio adapters: direct `stdin`/`stdout` framing.
   - socket adapters: Unix domain socket on Linux; TCP callback on macOS/other.
@@ -199,9 +200,11 @@ Side-channel artifacts outside the model tool result:
 - Network
   - Socket-mode adapters bind/connect local sockets.
   - Remote attach may connect through the adapter to a remote debug port.
+  - Android auto-attach creates an `adb forward tcp:<localPort> jdwp:<devicePid>` entry on the host adb server for the session lifetime; it is removed (`adb forward --remove`) on session dispose. Requires `adb` on PATH and a debuggable debug build of the app installed on the connected device.
 - Subprocesses / native bindings
   - Spawns debugger adapters (`gdb`, `lldb-dap`, `python -m debugpy.adapter`, `dlv`, and others from `defaults.json`) detached.
   - Reverse DAP `runInTerminal` requests spawn the debuggee detached via `ptree.spawn()`.
+  - Android auto-attach shells out to `adb` (`devices`, `shell run-as`, `shell pidof`, `shell monkey`, `forward`, `forward --remove`) via `packages/coding-agent/src/dap/adb.ts`.
   - `getWorkProfile(30)` comes from `@oh-my-pi/pi-natives`.
   - CPU profiling uses `node:inspector/promises`; heap snapshots use `Bun.generateHeapSnapshot("v8")`; raw/log viewers sanitize text via `@oh-my-pi/pi-natives`.
   - `openPath()` launches the OS default file/browser handler for artifact dirs and SVGs.

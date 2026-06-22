@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Added transparent Android (Kotlin) remote debugging over ADB+JDWP. `debug(action: "attach")` called from a project with `app/build.gradle(.kts)` (an `applicationId`) and no explicit `pid`/`port`/non-kotlin `adapter` now auto-detects the connected device, verifies the app is installed and debuggable, resolves the running PID (auto-starting via `monkey` if needed), runs `adb forward tcp:<port> jdwp:<pid>`, and attaches `kotlin-debug-adapter` to ART over the forwarded JDWP socket with the project root as the source map. The `adb forward` is removed on session dispose. Non-Android projects and explicit pid/port/manual-adapter attaches are unchanged.
+
 - Erase the remote llama.cpp slot KV cache after each subagent completes (success or
   failure) via `POST {providerBaseUrl}/slots/{id}?action=erase`, pinning each concurrent
   subagent to a distinct slot index `0..N-1` so the correct slot is cleared and parallel
