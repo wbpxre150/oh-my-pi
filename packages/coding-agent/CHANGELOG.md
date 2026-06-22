@@ -36,6 +36,7 @@
 - Local-inference-controlled task calls now return a hard error when the submitted task count exceeds the server's slot budget (1 for non-explore agents, `agentConcurrency.explore` for explore), instead of silently serializing over-limit batches. Applies to both sync and async dispatch paths; no subagents start when the check fails.
 
 - Fixed subagent progress reporting showing the full model context window instead of the per-slot divided window when local inference runs with multiple parallel slots. The `progress.contextWindow` field in the executor now reflects the divided value (`contextWindow / activeSlots`), so the TUI and session observer display the correct per-agent context budget.
+- Fixed `kotlin-lsp` warmup timing out on real Kotlin/Gradle projects. Bumped `warmupTimeoutMs` from 15000 to 120000 in `defaults.json` to accommodate JVM cold start plus Gradle project indexing (measured ~77s `initialize` on a real project).
 
 ## [15.10.3] - 2026-06-08
 

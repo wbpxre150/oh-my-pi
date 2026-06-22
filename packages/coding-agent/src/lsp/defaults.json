@@ -206,7 +206,8 @@
 		"command": "kotlin-lsp",
 		"args": ["--stdio"],
 		"fileTypes": [".kt", ".kts"],
-		"rootMarkers": ["build.gradle", "build.gradle.kts", "pom.xml", "settings.gradle", "settings.gradle.kts"]
+		"rootMarkers": ["build.gradle", "build.gradle.kts", "pom.xml", "settings.gradle", "settings.gradle.kts"],
+		"warmupTimeoutMs": 120000
 	},
 	"metals": {
 		"command": "metals",
