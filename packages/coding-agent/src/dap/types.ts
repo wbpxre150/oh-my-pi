@@ -607,4 +607,13 @@ export interface DapAttachSessionOptions {
 	pid?: number;
 	port?: number;
 	host?: string;
+	/** Per-attach overrides merged over `adapter.attachDefaults` LAST, so they
+	 *  win over the derived `pid`/`port`/`host` fields. Used to inject
+	 *  adapter-specific attach values that depend on the resolved target
+	 *  (e.g. kotlin-debug-adapter's `hostName`/`projectRoot`/`timeout`). */
+	extraAttachArguments?: Record<string, unknown>;
+	/** Best-effort cleanup invoked once from `#disposeSession` when the session
+	 *  ends (terminate, idle timeout, adapter death). Failures are logged and
+	 *  swallowed so cleanup never blocks session teardown. */
+	onDispose?: () => Promise<void> | void;
 }

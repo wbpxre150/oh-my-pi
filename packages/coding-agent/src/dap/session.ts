@@ -87,6 +87,7 @@ interface DapSession {
 	initializedSeen: boolean;
 	needsConfigurationDone: boolean;
 	configurationDoneSent: boolean;
+	onDispose?: () => Promise<void> | void;
 }
 
 export interface DapOutputSnapshot {
@@ -318,6 +319,7 @@ export class DapSessionManager {
 		await this.#ensureLaunchSlot();
 		const client = await DapClient.spawn({ adapter: options.adapter, cwd: options.cwd });
 		const session = this.#registerSession(client, options.adapter, options.cwd);
+		session.onDispose = options.onDispose;
 		try {
 			session.capabilities = await client.initialize(
 				this.#buildInitializeArguments(options.adapter),
@@ -331,6 +333,7 @@ export class DapSessionManager {
 				...(options.pid !== undefined ? { pid: options.pid, processId: options.pid } : {}),
 				...(options.port !== undefined ? { port: options.port } : {}),
 				...(options.host ? { host: options.host } : {}),
+				...(options.extraAttachArguments ?? {}),
 			};
 			const initialStopPromise = this.#prepareStopOutcome(
 				session,
@@ -1333,6 +1336,9 @@ export class DapSessionManager {
 			this.#activeSessionId = null;
 		}
 		this.#sessions.delete(session.id);
+		void Promise.resolve(session.onDispose?.()).catch(error => {
+			logger.warn("DAP session onDispose cleanup failed", { error: toErrorMessage(error) });
+		});
 		void session.client.dispose().catch(() => {});
 	}
 }
