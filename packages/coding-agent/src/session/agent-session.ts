@@ -119,6 +119,7 @@ import { expandPromptTemplate, type PromptTemplate } from "../config/prompt-temp
 import type { Settings, SkillsSettings } from "../config/settings";
 import { onAppendOnlyModeChanged } from "../config/settings";
 import { RawSseDebugBuffer } from "../debug/raw-sse-buffer";
+import type { DebugModeState } from "../debug-mode/state";
 import { loadCapability } from "../discovery";
 import { expandApplyPatchToEntries, normalizeDiff, normalizeToLF, ParseError, previewPatch, stripBom } from "../edit";
 import { getFileSnapshotStore } from "../edit/file-snapshot-store";
@@ -173,6 +174,7 @@ import { stageFileIndex } from "../plan-mode/approved-plan";
 import { createPlanReadMatcher } from "../plan-mode/plan-protection";
 import type { PlanModeState } from "../plan-mode/state";
 import autoContinuePrompt from "../prompts/system/auto-continue.md" with { type: "text" };
+import debugModeActivePrompt from "../prompts/system/debug-mode-active.md" with { type: "text" };
 import eagerTodoPrompt from "../prompts/system/eager-todo.md" with { type: "text" };
 import emptyStopRetryTemplate from "../prompts/system/empty-stop-retry.md" with { type: "text" };
 import ircIncomingTemplate from "../prompts/system/irc-incoming.md" with { type: "text" };
@@ -873,6 +875,7 @@ export class AgentSession {
 	#scheduledHiddenNextTurnGeneration: number | undefined = undefined;
 	#planModeState: PlanModeState | undefined;
 	#goalModeState: GoalModeState | undefined;
+	#debugModeState: DebugModeState | undefined;
 	#goalRuntime: GoalRuntime;
 	#goalTurnCounter = 0;
 	#planReferenceSent = false;
@@ -3384,6 +3387,16 @@ export class AgentSession {
 		await this.setActiveToolsByName(nextActive);
 		return [...new Set(activated)];
 	}
+	/**
+	 * Activate all currently discoverable MCP tools. Returns the names that were
+	 * actually activated (may be fewer if some are not yet in the registry).
+	 */
+	async activateAllDiscoverableMCPTools(): Promise<string[]> {
+		const discoverable = this.getDiscoverableTools({ source: "mcp" });
+		const mcpNames = discoverable.map(t => t.name);
+		if (mcpNames.length === 0) return [];
+		return this.activateDiscoveredMCPTools(mcpNames);
+	}
 
 	// ── Generic tool discovery (covers built-in + MCP + extension) ────────────
 
@@ -4085,6 +4098,14 @@ export class AgentSession {
 		}
 	}
 
+	setDebugModeState(state: DebugModeState | undefined): void {
+		this.#debugModeState = state;
+	}
+
+	getDebugModeState(): DebugModeState | undefined {
+		return this.#debugModeState;
+	}
+
 	getGoalModeState(): GoalModeState | undefined {
 		return this.#goalModeState;
 	}
@@ -4162,6 +4183,23 @@ export class AgentSession {
 				display: message.display,
 				details: message.details,
 				attribution: message.attribution,
+			},
+			options ? { deliverAs: options.deliverAs } : undefined,
+		);
+	}
+
+	/**
+	 * Inject the debug mode context message into the conversation history.
+	 */
+	async sendDebugModeContext(options?: { deliverAs?: "steer" | "followUp" | "nextTurn" }): Promise<void> {
+		const message = await this.#buildDebugModeMessage();
+		if (!message) return;
+		await this.sendCustomMessage(
+			{
+				customType: message.customType,
+				content: message.content,
+				display: message.display,
+				details: message.details,
 			},
 			options ? { deliverAs: options.deliverAs } : undefined,
 		);
@@ -4309,6 +4347,22 @@ export class AgentSession {
 		return {
 			role: "custom",
 			customType: "goal-mode-context",
+			content,
+			display: false,
+			attribution: "agent",
+			timestamp: Date.now(),
+		};
+	}
+	async #buildDebugModeMessage(): Promise<CustomMessage | null> {
+		if (!this.#debugModeState?.enabled) return null;
+		const content = prompt.render(debugModeActivePrompt, {
+			mcpTools: mcpToolsPrompt,
+			askToolName: "ask",
+			writeToolName: "write",
+		});
+		return {
+			role: "custom",
+			customType: "debug-mode-context",
 			content,
 			display: false,
 			attribution: "agent",
