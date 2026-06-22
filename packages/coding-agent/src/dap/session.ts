@@ -284,9 +284,33 @@ export class DapSessionManager {
 			// rejection while we await the config handshake. The actual error
 			// still propagates when we await launchPromise below.
 			launchPromise.catch(() => {});
+			// Start configurationDone concurrently. Some adapters
+			// (kotlin-debug-adapter) process configurationDone but never respond
+			// to it; racing the start request against the config handshake lets
+			// the flow proceed as soon as the start response arrives instead of
+			// blocking on the configurationDone response.
+			const configDonePromise = this.#completeConfigurationHandshake(session, signal, timeoutMs);
+			configDonePromise.catch(() => {});
 			try {
-				await this.#completeConfigurationHandshake(session, signal, timeoutMs);
+				await Promise.race([launchPromise, configDonePromise]);
 			} catch (error) {
+				if (launchFailure.rejected) {
+					// Start request failed; wait briefly for configurationDone to
+					// settle so we can combine error messages.
+					const configError = await Promise.race([
+						configDonePromise.then(
+							() => undefined,
+							(e: unknown) => e,
+						),
+						timers.setTimeout(50).then(() => undefined),
+					]);
+					if (configError) {
+						throw combineDapStartErrors("launch", launchFailure.error, configError);
+					}
+					throw launchFailure.error;
+				}
+				// configurationDone failed; let throwPreferredDapStartError check
+				// whether the start request also failed.
 				await throwPreferredDapStartError("launch", launchFailure, error);
 			}
 			await launchPromise;
@@ -346,9 +370,33 @@ export class DapSessionManager {
 				attachFailure,
 			);
 			attachPromise.catch(() => {});
+			// Start configurationDone concurrently. Some adapters
+			// (kotlin-debug-adapter) process configurationDone but never respond
+			// to it; racing the start request against the config handshake lets
+			// the flow proceed as soon as the start response arrives instead of
+			// blocking on the configurationDone response.
+			const configDonePromise = this.#completeConfigurationHandshake(session, signal, timeoutMs);
+			configDonePromise.catch(() => {});
 			try {
-				await this.#completeConfigurationHandshake(session, signal, timeoutMs);
+				await Promise.race([attachPromise, configDonePromise]);
 			} catch (error) {
+				if (attachFailure.rejected) {
+					// Start request failed; wait briefly for configurationDone to
+					// settle so we can combine error messages.
+					const configError = await Promise.race([
+						configDonePromise.then(
+							() => undefined,
+							(e: unknown) => e,
+						),
+						timers.setTimeout(50).then(() => undefined),
+					]);
+					if (configError) {
+						throw combineDapStartErrors("attach", attachFailure.error, configError);
+					}
+					throw attachFailure.error;
+				}
+				// configurationDone failed; let throwPreferredDapStartError check
+				// whether the start request also failed.
 				await throwPreferredDapStartError("attach", attachFailure, error);
 			}
 			await attachPromise;
@@ -1093,11 +1141,15 @@ export class DapSessionManager {
 				return;
 			}
 		}
-		await session.client.sendRequest("configurationDone", {}, signal, timeoutMs);
+		// Mark configurationDone as sent BEFORE awaiting the response. Some
+		// adapters (kotlin-debug-adapter) process configurationDone but never
+		// respond to it. Marking early prevents #ensureConfigurationDone from
+		// re-sending, and lets the caller race past the response.
 		session.configurationDoneSent = true;
 		if (session.status === "configuring") {
 			session.status = "running";
 		}
+		await session.client.sendRequest("configurationDone", {}, signal, timeoutMs);
 	}
 
 	#handleStoppedEvent(session: DapSession, stopped: DapStoppedEventBody): void {
@@ -1240,11 +1292,11 @@ export class DapSessionManager {
 		if (!session.needsConfigurationDone || session.configurationDoneSent) {
 			return;
 		}
-		await session.client.sendRequest("configurationDone", {}, signal, timeoutMs);
 		session.configurationDoneSent = true;
 		if (session.status === "configuring") {
 			session.status = "running";
 		}
+		await session.client.sendRequest("configurationDone", {}, signal, timeoutMs);
 	}
 
 	#mapSourceBreakpoints(
