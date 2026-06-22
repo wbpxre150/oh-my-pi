@@ -36,6 +36,7 @@ import {
 	selectAttachAdapter,
 	selectLaunchAdapter,
 } from "../dap";
+import { resolveAndroidAttach } from "../dap/android";
 import type { Theme } from "../modes/theme/theme";
 import debugDescription from "../prompts/tools/debug.md" with { type: "text" };
 import { renderStatusLine } from "../tui";
@@ -708,10 +709,47 @@ export class DebugTool implements AgentTool<typeof debugSchema, DebugToolDetails
 				return result.text(formatSessionSnapshot(snapshot).join("\n")).done();
 			}
 			case "attach": {
+				const commandCwd = params.cwd ? resolveToCwd(params.cwd, this.session.cwd) : this.session.cwd;
+				// Auto-resolve Android (ADB + JDWP) attach when the caller supplied no
+				// explicit pid/port and no non-kotlin adapter. Returns null for
+				// non-Android projects, so the existing pid/port requirement still
+				// applies. Throws an actionable error for blocked Android projects
+				// (no device, app not installed, not debuggable, won't start).
+				const androidTarget =
+					params.pid === undefined &&
+					params.port === undefined &&
+					(params.adapter === undefined || params.adapter === "kotlin-debug-adapter")
+						? await resolveAndroidAttach(commandCwd, combinedSignal)
+						: null;
+				if (androidTarget) {
+					const adapter = selectAttachAdapter(commandCwd, "kotlin-debug-adapter");
+					if (!adapter) {
+						throw new ToolError("adapter 'kotlin-debug-adapter' is not available: install it and retry");
+					}
+					const snapshot = await dapSessionManager.attach(
+						{
+							adapter,
+							cwd: commandCwd,
+							port: androidTarget.port,
+							host: androidTarget.host,
+							extraAttachArguments: {
+								hostName: androidTarget.host,
+								port: androidTarget.port,
+								projectRoot: androidTarget.projectRoot,
+								timeout: 30_000,
+							},
+							onDispose: androidTarget.cleanup,
+						},
+						combinedSignal,
+						timeoutSec * 1000,
+					);
+					details.snapshot = snapshot;
+					details.adapter = adapter.name;
+					return result.text(formatSessionSnapshot(snapshot).join("\n")).done();
+				}
 				if (params.pid === undefined && params.port === undefined) {
 					throw new ToolError("attach requires pid or port");
 				}
-				const commandCwd = params.cwd ? resolveToCwd(params.cwd, this.session.cwd) : this.session.cwd;
 				const adapter = selectAttachAdapter(commandCwd, params.adapter, params.port);
 				if (!adapter) {
 					if (params.adapter === "debugpy") {
