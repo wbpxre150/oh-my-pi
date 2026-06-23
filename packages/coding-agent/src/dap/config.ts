@@ -18,7 +18,12 @@ function normalizeObject(value: unknown): Record<string, unknown> {
 function normalizeAdapterConfig(config: unknown): DapAdapterConfig | null {
 	if (!isRecord(config)) return null;
 	if (typeof config.command !== "string" || config.command.length === 0) return null;
-	const connectMode = config.connectMode === "socket" ? ("socket" as const) : undefined;
+	const connectMode =
+		config.connectMode === "socket"
+			? ("socket" as const)
+			: config.connectMode === "tcp"
+				? ("tcp" as const)
+				: undefined;
 	return {
 		command: config.command,
 		args: normalizeStringArray(config.args),

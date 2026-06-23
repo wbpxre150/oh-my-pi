@@ -123,6 +123,18 @@
 			"timeout": 30000
 		}
 	},
+	"jdtls": {
+		"command": "jdtls",
+		"args": [],
+		"languages": ["java", "kotlin"],
+		"fileTypes": [".java", ".kt", ".kts"],
+		"rootMarkers": ["build.gradle", "build.gradle.kts", "pom.xml", "settings.gradle", "settings.gradle.kts"],
+		"connectMode": "tcp",
+		"attachDefaults": {
+			"request": "attach",
+			"hostName": "127.0.0.1"
+		}
+	},
 	"rdbg": {
 		"command": "rdbg",
 		"args": ["--open", "--command", "--"],

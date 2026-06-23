@@ -99,12 +99,17 @@ export class DapClient {
 		this.adapter = adapter;
 		this.cwd = cwd;
 		this.proc = proc;
-		this.#readable = options?.readable ?? (proc.stdout as ReadableStream<Uint8Array>);
-		this.#writeSink = options?.writeSink ?? proc.stdin;
+		this.#readable = options?.readable ?? (proc!.stdout as ReadableStream<Uint8Array>);
+		this.#writeSink = options?.writeSink ?? proc!.stdin;
 		this.#socket = options?.socket;
 	}
 
 	static async spawn({ adapter, cwd }: DapSpawnOptions): Promise<DapClient> {
+		if (adapter.connectMode === "tcp") {
+			throw new Error(
+				`Adapter ${adapter.name} uses connectMode "tcp" and cannot be spawned. Use DapClient.connectTcp() instead.`,
+			);
+		}
 		if (adapter.connectMode === "socket") {
 			return DapClient.#spawnSocket({ adapter, cwd });
 		}
@@ -230,6 +235,64 @@ export class DapClient {
 		return client;
 	}
 
+	/**
+	 * Connect to an already-listening DAP TCP server (e.g. JDT-LS java-debug).
+	 * No process is spawned; the caller obtains the port from an external source.
+	 */
+	static async connectTcp(adapter: DapResolvedAdapter, cwd: string, host: string, port: number): Promise<DapClient> {
+		const { promise, resolve, reject } = Promise.withResolvers<SocketTransport>();
+
+		let streamController: ReadableStreamDefaultController<Uint8Array>;
+		const readable = new ReadableStream<Uint8Array>({
+			start(controller) {
+				streamController = controller;
+			},
+		});
+
+		const connectTimeout = setTimeout(() => {
+			reject(new Error(`DAP TCP connect to ${host}:${port} timed out after 10s`));
+		}, 10_000);
+
+		Bun.connect({
+			hostname: host,
+			port,
+			socket: {
+				open(socket) {
+					clearTimeout(connectTimeout);
+					resolve({
+						readable,
+						writeSink: socketToSink(socket),
+						socket,
+					});
+				},
+				data(_socket, data) {
+					streamController.enqueue(new Uint8Array(data));
+				},
+				close() {
+					try {
+						streamController.close();
+					} catch {
+						/* already closed */
+					}
+				},
+				error(_socket, err) {
+					clearTimeout(connectTimeout);
+					try {
+						streamController.error(err);
+					} catch {
+						/* already closed */
+					}
+					reject(err);
+				},
+			},
+		});
+
+		const transport = await promise;
+		const client = new DapClient(adapter, cwd, null, transport);
+		void client.#startMessageReader();
+		return client;
+	}
+
 	get capabilities(): DapCapabilities | undefined {
 		return this.#capabilities;
 	}
@@ -239,7 +302,9 @@ export class DapClient {
 	}
 
 	isAlive(): boolean {
-		return !this.#disposed && this.proc.exitCode === null;
+		if (this.#disposed) return false;
+		if (this.proc) return this.proc.exitCode === null;
+		return true;
 	}
 
 	async initialize(args: DapInitializeArguments, signal?: AbortSignal, timeoutMs?: number): Promise<DapCapabilities> {
@@ -401,15 +466,17 @@ export class DapClient {
 		} catch {
 			/* socket may already be closed */
 		}
-		try {
-			this.proc.kill();
-		} catch (error) {
-			logger.debug("Failed to kill DAP adapter", {
-				adapter: this.adapter.name,
-				error: toErrorMessage(error),
-			});
+		if (this.proc) {
+			try {
+				this.proc.kill();
+			} catch (error) {
+				logger.debug("Failed to kill DAP adapter", {
+					adapter: this.adapter.name,
+					error: toErrorMessage(error),
+				});
+			}
+			await this.proc.exited.catch(() => {});
 		}
-		await this.proc.exited.catch(() => {});
 	}
 
 	async #startMessageReader(): Promise<void> {
@@ -438,6 +505,13 @@ export class DapClient {
 					parsed = parseMessage(workingBuffer);
 				}
 				this.#messageBuffer = workingBuffer;
+			}
+			// Stream ended without error - reject pending requests so they
+			// don't hang forever. Safe for all modes: if #handleProcessExit
+			// already ran, #disposed is true and this is a no-op.
+			if (!this.#disposed) {
+				this.#disposed = true;
+				this.#rejectPendingRequests(new Error(`DAP connection closed`));
 			}
 		} catch (error) {
 			this.#rejectPendingRequests(new Error(`DAP connection closed: ${toErrorMessage(error)}`));
@@ -523,6 +597,7 @@ export class DapClient {
 
 	#handleProcessExit(): void {
 		if (this.#disposed) return;
+		if (!this.proc) return;
 		this.#disposed = true;
 		const stderr = this.proc.peekStderr().trim();
 		const exitCode = this.proc.exitCode;

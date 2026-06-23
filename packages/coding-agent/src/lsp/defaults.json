@@ -200,7 +200,8 @@
 		"command": "jdtls",
 		"args": [],
 		"fileTypes": [".java"],
-		"rootMarkers": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", ".project"]
+		"rootMarkers": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", ".project"],
+		"warmupTimeoutMs": 120000
 	},
 	"kotlin-lsp": {
 		"command": "kotlin-lsp",
