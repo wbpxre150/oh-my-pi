@@ -51,6 +51,8 @@
 - Fixed manual `debug(action: "attach", port: ...)` failing for `connectMode: "tcp"` adapters (e.g. `jdtls`). `DapSessionManager.attach()` unconditionally called `DapClient.spawn()`, which throws "cannot be spawned" for TCP adapters instead of connecting. `attach()` now branches on `adapter.connectMode` and delegates TCP adapters to `attachTcp` / `DapClient.connectTcp`; stdio adapters keep the existing spawn path.
 - Fixed a debug session stuck in `configuring` after a manual `configurationDone` `custom_request`. `customRequest` now transitions a `configuring` session to `running` after a `configurationDone` request, matching the state transition the auto-attach handshake performs.
 
+- Fixed `stack_trace` ignoring the `thread_id` parameter — it always returned the main thread's stack. The `debug` tool now accepts `thread_id` for `stack_trace` and passes it through to the DAP `stackTrace` request, falling back to the resolved stopped thread when omitted.
+
 ## [15.10.3] - 2026-06-08
 
 ### Added

@@ -24,8 +24,8 @@ export class TcpFakeDapClient {
 	readonly proc: DapClientState["proc"] = null;
 	readonly #handlers = new Map<string, Set<DapEventHandler>>();
 	#alive = true;
+	#sendRequestHandler?: (command: string, args: unknown) => unknown | Promise<unknown>;
 	readonly #capabilities: DapCapabilities;
-
 	constructor(
 		readonly adapter: DapResolvedAdapter,
 		readonly cwd: string,
@@ -38,12 +38,17 @@ export class TcpFakeDapClient {
 		this.#alive = alive;
 	}
 
+	setSendRequestHandler(handler: (command: string, args: unknown) => unknown | Promise<unknown>): void {
+		this.#sendRequestHandler = handler;
+	}
+
 	async initialize(): Promise<DapCapabilities> {
-		queueMicrotask(() => this.#emit("initialized", {}));
+		queueMicrotask(() => this.emit("initialized", {}));
 		return this.#capabilities;
 	}
 
-	async sendRequest(): Promise<unknown> {
+	async sendRequest(command: string = "", args?: unknown): Promise<unknown> {
+		if (this.#sendRequestHandler) return this.#sendRequestHandler(command, args);
 		return {};
 	}
 
@@ -77,7 +82,7 @@ export class TcpFakeDapClient {
 		this.#alive = false;
 	}
 
-	#emit(event: string, body: unknown): void {
+	emit(event: string, body: unknown): void {
 		const message: DapEventMessage = { seq: 1, type: "event", event, body };
 		for (const handler of this.#handlers.get(event) ?? []) {
 			void handler(body, message);

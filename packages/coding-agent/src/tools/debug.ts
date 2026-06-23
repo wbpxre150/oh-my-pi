@@ -125,6 +125,7 @@ const debugSchema = z.object({
 	port: z.number().describe("remote attach port").optional(),
 	host: z.string().describe("remote attach host").optional(),
 	levels: z.number().describe("max stack frames").optional(),
+	thread_id: z.number().describe("thread id for stack_trace").optional(),
 	memory_reference: z.string().describe("memory reference or address").optional(),
 	instruction_reference: z.string().optional(),
 	instruction_count: z.number().optional(),
@@ -954,7 +955,12 @@ export class DebugTool implements AgentTool<typeof debugSchema, DebugToolDetails
 				return result.text(formatEvaluation(response.evaluation)).done();
 			}
 			case "stack_trace": {
-				const response = await dapSessionManager.stackTrace(params.levels, combinedSignal, timeoutSec * 1000);
+				const response = await dapSessionManager.stackTrace(
+					params.levels,
+					params.thread_id,
+					combinedSignal,
+					timeoutSec * 1000,
+				);
 				details.snapshot = response.snapshot;
 				details.stackFrames = response.stackFrames;
 				return result.text(formatStackFrames(response.stackFrames)).done();

@@ -957,16 +957,17 @@ export class DapSessionManager {
 
 	async stackTrace(
 		frameCount: number | undefined,
+		threadId: number | undefined,
 		signal?: AbortSignal,
 		timeoutMs: number = 30_000,
 	): Promise<{ snapshot: DapSessionSummary; stackFrames: DapStackFrame[]; totalFrames?: number }> {
 		const session = this.#touchActiveSession();
-		const threadId = await this.#resolveThreadId(session, signal, timeoutMs);
+		const resolvedThreadId = threadId ?? (await this.#resolveThreadId(session, signal, timeoutMs));
 		const response = await this.#sendRequestWithConfig<DapStackTraceResponse>(
 			session,
 			"stackTrace",
 			{
-				threadId,
+				threadId: resolvedThreadId,
 				...(frameCount !== undefined ? { levels: frameCount } : {}),
 			} satisfies DapStackTraceArguments,
 			signal,
