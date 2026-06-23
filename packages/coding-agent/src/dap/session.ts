@@ -11,6 +11,7 @@ import type {
 	DapBreakpointRecord,
 	DapCapabilities,
 	DapContinueArguments,
+	DapContinuedEventBody,
 	DapContinueOutcome,
 	DapContinueResponse,
 	DapDataBreakpoint,
@@ -924,6 +925,13 @@ export class DapSessionManager {
 		} catch {
 			// Timeout or abort — report current state regardless
 		}
+		// The stopped event handler (synchronously emitted by pause request above)
+		// may have set session.status = "stopped", but TS narrows it out after the
+		// early-return check on line 911.
+		// @ts-expect-error TS2367: narrowed out by early return but set by event handler
+		if (session.status === "stopped") {
+			await this.#fetchTopFrame(session, signal, Math.min(timeoutMs, STOP_CAPTURE_TIMEOUT_MS));
+		}
 		return buildSummary(session);
 	}
 
@@ -1180,10 +1188,12 @@ export class DapSessionManager {
 			this.#handleStoppedEvent(session, body as DapStoppedEventBody);
 		});
 		client.onEvent("continued", body => {
-			const continued = body as { threadId?: number } | undefined;
-			session.status = "running";
-			session.stop = { threadId: continued?.threadId };
-			session.lastStackFrames = [];
+			const continued = body as DapContinuedEventBody | undefined;
+			if (continued?.allThreadsContinued === true || continued?.threadId === session.stop.threadId) {
+				session.status = "running";
+				session.stop = { threadId: continued?.threadId };
+				session.lastStackFrames = [];
+			}
 		});
 		client.onEvent("exited", body => {
 			session.exitCode = (body as DapExitedEventBody | undefined)?.exitCode;
