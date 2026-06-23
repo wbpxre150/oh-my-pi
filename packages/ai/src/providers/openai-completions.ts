@@ -82,6 +82,7 @@ import {
 	joinTextWithImagePlaceholder,
 	NON_VISION_IMAGE_PLACEHOLDER,
 } from "./vision-guard";
+import { UNK_MAX_TOKENS } from "../provider-models/openai-compat";
 
 /**
  * Normalize tool call ID for Mistral.
@@ -1259,7 +1260,8 @@ function buildParams(
 	// before the final answer. Always send max_tokens — match the same
 	// Kimi-family regex used by the compat detector.
 	// Note: Direct kimi-code provider is handled by the dedicated Kimi provider in kimi.ts.
-	const effectiveMaxTokens = options?.maxTokens ?? (isKimiModelId ? model.maxTokens : undefined);
+	const effectiveMaxTokens = options?.maxTokens ??
+		(model.maxTokens > 0 && model.maxTokens !== UNK_MAX_TOKENS ? model.maxTokens : undefined);
 
 	const requestModelId = resolveOpenAICompletionsModelId(model, options);
 	const params: OpenAICompletionsParams = {
