@@ -877,6 +877,13 @@ export class DapSessionManager {
 	): Promise<{ snapshot: DapSessionSummary; body: unknown }> {
 		const session = this.#touchActiveSession();
 		const body = await this.#sendRequestWithConfig<unknown>(session, command, args, signal, timeoutMs);
+		// A manual configurationDone request completes the config handshake;
+		// transition a configuring session to running so sessions() reports
+		// the correct state. The auto-attach path handles this inside
+		// #completeConfigurationHandshake and never reaches here.
+		if (command === "configurationDone" && session.status === "configuring") {
+			session.status = "running";
+		}
 		return { snapshot: buildSummary(session), body };
 	}
 
