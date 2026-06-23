@@ -617,3 +617,18 @@ export interface DapAttachSessionOptions {
 	 *  swallowed so cleanup never blocks session teardown. */
 	onDispose?: () => Promise<void> | void;
 }
+
+export interface DapAttachTcpSessionOptions {
+	adapter: DapResolvedAdapter;
+	cwd: string;
+	/** DAP TCP server host (typically 127.0.0.1). */
+	host: string;
+	/** DAP TCP server port (from vscode.java.startDebugSession). */
+	port: number;
+	/** Per-attach overrides merged over `adapter.attachDefaults` LAST.
+	 *  Used to inject the JDWP forwarded port (hostName/port) that the
+	 *  JDT-LS java-debug backend connects to. */
+	extraAttachArguments?: Record<string, unknown>;
+	/** Best-effort cleanup invoked once from #disposeSession. */
+	onDispose?: () => Promise<void> | void;
+}

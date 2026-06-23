@@ -6,6 +6,7 @@ import { DapClient } from "./client";
 import type {
 	DapAttachArguments,
 	DapAttachSessionOptions,
+	DapAttachTcpSessionOptions,
 	DapBreakpoint,
 	DapBreakpointRecord,
 	DapCapabilities,
@@ -419,6 +420,75 @@ export class DapSessionManager {
 		}
 	}
 
+	async attachTcp(
+		options: DapAttachTcpSessionOptions,
+		signal?: AbortSignal,
+		timeoutMs: number = 30_000,
+	): Promise<DapSessionSummary> {
+		await this.#ensureLaunchSlot();
+		const client = await DapClient.connectTcp(options.adapter, options.cwd, options.host, options.port);
+		const session = this.#registerSession(client, options.adapter, options.cwd);
+		session.onDispose = options.onDispose;
+		try {
+			session.capabilities = await client.initialize(
+				this.#buildInitializeArguments(options.adapter),
+				signal,
+				timeoutMs,
+			);
+			session.needsConfigurationDone = session.capabilities.supportsConfigurationDoneRequest === true;
+			const attachArguments: DapAttachArguments = {
+				...options.adapter.attachDefaults,
+				cwd: options.cwd,
+				...(options.extraAttachArguments ?? {}),
+			};
+			const initialStopPromise = this.#prepareStopOutcome(
+				session,
+				signal,
+				Math.min(timeoutMs, STOP_CAPTURE_TIMEOUT_MS),
+			);
+			const attachFailure: DapStartRequestFailure = { rejected: false };
+			const attachPromise = trackDapStartRequest(
+				client.sendRequest("attach", attachArguments, signal, timeoutMs),
+				attachFailure,
+			);
+			attachPromise.catch(() => {});
+			const configDonePromise = this.#completeConfigurationHandshake(session, signal, timeoutMs);
+			configDonePromise.catch(() => {});
+			try {
+				await Promise.race([attachPromise, configDonePromise]);
+			} catch (error) {
+				if (attachFailure.rejected) {
+					const configError = await Promise.race([
+						configDonePromise.then(
+							() => undefined,
+							(e: unknown) => e,
+						),
+						timers.setTimeout(50).then(() => undefined),
+					]);
+					if (configError) {
+						throw combineDapStartErrors("attach", attachFailure.error, configError);
+					}
+					throw attachFailure.error;
+				}
+				await throwPreferredDapStartError("attach", attachFailure, error);
+			}
+			await attachPromise;
+			try {
+				await untilAborted(signal, initialStopPromise);
+				if (session.status === "stopped") {
+					await this.#fetchTopFrame(session, signal, Math.min(timeoutMs, STOP_CAPTURE_TIMEOUT_MS));
+				}
+			} catch {
+				if (session.initializedSeen && session.status === "launching") {
+					session.status = session.configurationDoneSent ? "running" : "configuring";
+				}
+			}
+			return buildSummary(session);
+		} catch (error) {
+			await this.#disposeSession(session);
+			throw error;
+		}
+	}
 	async setBreakpoint(
 		file: string,
 		line: number,
