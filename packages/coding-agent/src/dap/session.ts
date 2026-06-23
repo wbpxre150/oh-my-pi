@@ -285,11 +285,11 @@ export class DapSessionManager {
 			// rejection while we await the config handshake. The actual error
 			// still propagates when we await launchPromise below.
 			launchPromise.catch(() => {});
-			// Start configurationDone concurrently. Some adapters
-			// (kotlin-debug-adapter) process configurationDone but never respond
-			// to it; racing the start request against the config handshake lets
-			// the flow proceed as soon as the start response arrives instead of
-			// blocking on the configurationDone response.
+			// Start configurationDone concurrently. Some adapters process
+			// configurationDone but never respond to it; racing the start
+			// request against the config handshake lets the flow proceed as
+			// soon as the start response arrives instead of blocking on the
+			// configurationDone response.
 			const configDonePromise = this.#completeConfigurationHandshake(session, signal, timeoutMs);
 			configDonePromise.catch(() => {});
 			try {
@@ -371,11 +371,11 @@ export class DapSessionManager {
 				attachFailure,
 			);
 			attachPromise.catch(() => {});
-			// Start configurationDone concurrently. Some adapters
-			// (kotlin-debug-adapter) process configurationDone but never respond
-			// to it; racing the start request against the config handshake lets
-			// the flow proceed as soon as the start response arrives instead of
-			// blocking on the configurationDone response.
+			// Start configurationDone concurrently. Some adapters process
+			// configurationDone but never respond to it; racing the start
+			// request against the config handshake lets the flow proceed as
+			// soon as the start response arrives instead of blocking on the
+			// configurationDone response.
 			const configDonePromise = this.#completeConfigurationHandshake(session, signal, timeoutMs);
 			configDonePromise.catch(() => {});
 			try {
@@ -1212,9 +1212,9 @@ export class DapSessionManager {
 			}
 		}
 		// Mark configurationDone as sent BEFORE awaiting the response. Some
-		// adapters (kotlin-debug-adapter) process configurationDone but never
-		// respond to it. Marking early prevents #ensureConfigurationDone from
-		// re-sending, and lets the caller race past the response.
+		// adapters process configurationDone but never respond to it. Marking
+		// early prevents #ensureConfigurationDone from re-sending, and lets
+		// the caller race past the response.
 		session.configurationDoneSent = true;
 		if (session.status === "configuring") {
 			session.status = "running";

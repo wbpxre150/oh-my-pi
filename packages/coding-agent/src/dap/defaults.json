@@ -106,23 +106,6 @@
 			"request": "attach"
 		}
 	},
-	"kotlin-debug-adapter": {
-		"command": "kotlin-debug-adapter",
-		"args": [],
-		"languages": ["kotlin"],
-		"fileTypes": [".kt", ".kts"],
-		"rootMarkers": ["build.gradle", "build.gradle.kts", "pom.xml", "settings.gradle", "settings.gradle.kts"],
-		"launchDefaults": {
-			"request": "launch",
-			"mainClass": "",
-			"projectRoot": ""
-		},
-		"attachDefaults": {
-			"request": "attach",
-			"hostName": "127.0.0.1",
-			"timeout": 30000
-		}
-	},
 	"jdtls": {
 		"command": "jdtls",
 		"args": [],

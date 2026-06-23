@@ -17,6 +17,7 @@
 - `/db` slash command toggles debug mode: activates Token Savior MCP tools and the DAP debug tool, injects a find-and-report system prompt, and writes a bug report to `BUG-REPORT.md` in the project root. Mutually exclusive with plan and goal modes.
 
 ### Changed
+- Replaced `kotlin-debug-adapter` with JDT-LS + java-debug plugin for Android (Java/Kotlin) debugging. The `debug(action: "attach")` auto-detection now starts a JDT-LS LSP server, calls `vscode.java.startDebugSession` to obtain a DAP TCP port, and connects via `DapClient.connectTcp`. The JDWP forwarded port is passed as the DAP `attach` target. JDT-LS must be installed and on PATH (`jdtls`); the java-debug plugin must be registered in JDT-LS `config.ini` via `osgi.bundles`.
 
 - Removed the Token Savior MCP activation prompt from the main agent's system prompt. The main agent no longer calls `search_tool_bm25` and `switch_project` on every task. MCP tools are still available via manual `search_tool_bm25` discovery, and plan mode retains MCP. The plan-mode active prompt now explicitly instructs the planner that stage files MUST NOT reference MCP tools for task subagents (which have MCP disabled).
 - Updated the subagent MCP prompt (`mcp-tools-subagent.md`) to tell subagents to call `switch_project` themselves, since the main agent no longer pre-activates the project. This is idempotent and safe for existing subagents (e.g. `explore` in plan mode).
@@ -26,6 +27,10 @@
 - When a local-inference-controlled provider runs with multiple parallel slots, each spawned subagent's context window is divided by the active slot count (e.g. a 2-slot explore batch gives each subagent half the model's context window). Single-slot runs are unaffected.
 - Reworked the plan-mode active prompt (`prompts/system/plan-mode-active.md`) to force exact stage-file naming. Stage files MUST be `local://stage-1.md`, `local://stage-2.md`, … (N from 1, contiguous; no slug prefix/suffix, no subdirectory, always the `local://` scheme) because stage discovery matches `^stage-\d+\.md$` exactly and any other name or location is invisible to the approval system. Also folded the planning methodology into the existing sections: Understand → Explore → Design → Review → Write phases, Token Savior MCP-first exploration, and stage-decomposition guidelines (each stage executable without re-reading the codebase, collapse trivial stages, split sprawling ones).
 - Changed the plan-approval review popup to display the discovered stage files beneath the summary so the operator reviews the actual execution units, not just the overview. Stages are display-only: in-overlay deletes/annotations still feed the Refine loop, but edits are not mirrored to disk and approval uses the original summary content.
+
+### Removed
+
+- Removed `kotlin-debug-adapter` DAP adapter configuration. Use `jdtls` adapter instead for Java/Kotlin debugging.
 
 ### Fixed
 
