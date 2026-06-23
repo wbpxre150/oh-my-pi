@@ -1559,6 +1559,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.planModeEnabled = true;
 
 		await this.session.setActiveToolsByName(uniquePlanTools);
+		// Activate all discoverable MCP tools (Token Savior)
+		await this.session.activateAllDiscoverableMCPTools();
 		this.session.setPlanModeState({
 			enabled: true,
 			planFilePath,
