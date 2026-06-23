@@ -37,6 +37,7 @@ import {
 	selectLaunchAdapter,
 } from "../dap";
 import { resolveAndroidAttach } from "../dap/android";
+import { resolveJdtlsDebugPort } from "../dap/jdtls";
 import type { Theme } from "../modes/theme/theme";
 import debugDescription from "../prompts/tools/debug.md" with { type: "text" };
 import { renderStatusLine } from "../tui";
@@ -711,32 +712,35 @@ export class DebugTool implements AgentTool<typeof debugSchema, DebugToolDetails
 			case "attach": {
 				const commandCwd = params.cwd ? resolveToCwd(params.cwd, this.session.cwd) : this.session.cwd;
 				// Auto-resolve Android (ADB + JDWP) attach when the caller supplied no
-				// explicit pid/port and no non-kotlin adapter. Returns null for
+				// explicit pid/port and no non-jdtls adapter. Returns null for
 				// non-Android projects, so the existing pid/port requirement still
 				// applies. Throws an actionable error for blocked Android projects
 				// (no device, app not installed, not debuggable, won't start).
 				const androidTarget =
 					params.pid === undefined &&
 					params.port === undefined &&
-					(params.adapter === undefined || params.adapter === "kotlin-debug-adapter")
+					(params.adapter === undefined || params.adapter === "jdtls")
 						? await resolveAndroidAttach(commandCwd, combinedSignal)
 						: null;
 				if (androidTarget) {
-					const adapter = selectAttachAdapter(commandCwd, "kotlin-debug-adapter");
+					const adapter = selectAttachAdapter(commandCwd, "jdtls");
 					if (!adapter) {
-						throw new ToolError("adapter 'kotlin-debug-adapter' is not available: install it and retry");
+						throw new ToolError("adapter 'jdtls' is not available: install JDT-LS and retry");
 					}
-					const snapshot = await dapSessionManager.attach(
+					// JDT-LS java-debug: get the DAP TCP port from the LSP server,
+					// then connect the DAP client to it. The JDWP forwarded port
+					// is passed as the attach target (hostName/port) so java-debug
+					// connects to ART over JDWP.
+					const dapTarget = await resolveJdtlsDebugPort(commandCwd, combinedSignal);
+					const snapshot = await dapSessionManager.attachTcp(
 						{
 							adapter,
 							cwd: commandCwd,
-							port: androidTarget.port,
-							host: androidTarget.host,
+							host: dapTarget.host,
+							port: dapTarget.port,
 							extraAttachArguments: {
 								hostName: androidTarget.host,
 								port: androidTarget.port,
-								projectRoot: androidTarget.projectRoot,
-								timeout: 30_000,
 							},
 							onDispose: androidTarget.cleanup,
 						},
