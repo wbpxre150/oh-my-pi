@@ -341,6 +341,30 @@ export class DapSessionManager {
 		signal?: AbortSignal,
 		timeoutMs: number = 30_000,
 	): Promise<DapSessionSummary> {
+		// TCP adapters (e.g. JDT-LS java-debug) expose a DAP socket, not a stdio
+		// subprocess. Route them to the TCP connect path. `options.port` is the
+		// DAP adapter port; the JDWP target (if any) is supplied via
+		// `extraAttachArguments`, matching attachTcp.
+		if (options.adapter.connectMode === "tcp") {
+			if (options.port === undefined) {
+				throw new Error(
+					`attach via ${options.adapter.name} requires a port (TCP adapter); ` +
+						`provide the DAP adapter port, or use the auto-attach flow.`,
+				);
+			}
+			return this.attachTcp(
+				{
+					adapter: options.adapter,
+					cwd: options.cwd,
+					host: options.host ?? "127.0.0.1",
+					port: options.port,
+					extraAttachArguments: options.extraAttachArguments,
+					onDispose: options.onDispose,
+				},
+				signal,
+				timeoutMs,
+			);
+		}
 		await this.#ensureLaunchSlot();
 		const client = await DapClient.spawn({ adapter: options.adapter, cwd: options.cwd });
 		const session = this.#registerSession(client, options.adapter, options.cwd);
