@@ -123,7 +123,8 @@ function deriveHealthUrl(config: LocalInferenceConfig, providerBaseUrl: string):
  * @param slotId - slot index to erase (0..N-1).
  */
 export async function eraseSlot(providerBaseUrl: string, slotId: number): Promise<boolean> {
-	const url = `${providerBaseUrl.replace(/\/$/, "")}/slots/${slotId}?action=erase`;
+	const base = new URL(providerBaseUrl);
+	const url = `${base.origin}/slots/${slotId}?action=erase`;
 	try {
 		const res = await fetch(url, { method: "POST", signal: AbortSignal.timeout(10_000) });
 		if (!res.ok) {

@@ -14,11 +14,13 @@ describe("eraseSlot", () => {
 		expect((init as RequestInit).method).toBe("POST");
 	});
 
-	it("strips a trailing slash from the baseUrl", async () => {
+	it("strips the API path from the baseUrl (e.g. /v1)", async () => {
 		const fetchSpy = vi.fn((input: string | URL | Request, init: RequestInit | undefined) => new Response("{}", { status: 200 }));
 		using _hook = hookFetch(fetchSpy);
-		await eraseSlot("http://localhost:8080/", 0);
-		expect(String(fetchSpy.mock.calls[0]![0])).toBe("http://localhost:8080/slots/0?action=erase");
+		// Real local-inference config has baseUrl like http://192.168.0.24:8081/v1
+		// The /slots endpoint lives at the server root, not under /v1
+		await eraseSlot("http://192.168.0.24:8081/v1", 0);
+		expect(String(fetchSpy.mock.calls[0]![0])).toBe("http://192.168.0.24:8081/slots/0?action=erase");
 	});
 
 	it("does not throw on a non-2xx response", async () => {
