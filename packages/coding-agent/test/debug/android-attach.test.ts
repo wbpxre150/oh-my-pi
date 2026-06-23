@@ -68,6 +68,7 @@ describe("resolveAndroidAttach", () => {
 		expect(target!.pid).toBe(12345);
 		expect(target!.device).toBe("192.168.0.113:37815");
 		expect(target!.projectRoot).toBe(dir);
+		expect(target!.projectName).toBe("app");
 
 		const calls = getCalls();
 		const forwardCall = calls.find(a => a.includes("forward") && a.includes(`jdwp:12345`));
@@ -113,5 +114,29 @@ describe("resolveAndroidAttach", () => {
 		const { fn } = adbMock([() => ({ exitCode: 0, stdout: "List of devices attached\n", stderr: "" })]);
 		spyOn(adbModule, "adbExec").mockImplementation(fn);
 		await expect(resolveAndroidAttach(dir)).rejects.toThrow(/No Android device connected/);
+	});
+
+	function makeModuleAndroidProject(moduleDir: string, applicationId: string): string {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-android-"));
+		fs.mkdirSync(path.join(dir, moduleDir), { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, moduleDir, "build.gradle.kts"),
+			`plugins { id("com.android.application") }\nandroid { defaultConfig { applicationId = "${applicationId}" } }\n`,
+		);
+		return dir;
+	}
+
+	it("derives projectName from the Gradle module directory for non-app modules", async () => {
+		const dir = makeModuleAndroidProject("moduleX", "com.test.app");
+		const { fn } = adbMock([
+			() => ({ exitCode: 0, stdout: "List of devices attached\nemulator-5554\tdevice\n", stderr: "" }),
+			() => ({ exitCode: 0, stdout: "uid=10000\n", stderr: "" }),
+			() => ({ exitCode: 0, stdout: "12345\n", stderr: "" }),
+			() => ({ exitCode: 0, stdout: "", stderr: "" }),
+		]);
+		spyOn(adbModule, "adbExec").mockImplementation(fn);
+		const target = await resolveAndroidAttach(dir);
+		expect(target).not.toBeNull();
+		expect(target!.projectName).toBe("moduleX");
 	});
 });

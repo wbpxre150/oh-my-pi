@@ -1,3 +1,4 @@
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { isEnoent, logger } from "@oh-my-pi/pi-utils";
 import * as adb from "./adb";
@@ -7,6 +8,7 @@ export interface AndroidAttachTarget {
 	port: number;
 	projectRoot: string;
 	applicationId: string;
+	projectName: string;
 	pid: number;
 	device: string;
 	/** Remove the `adb forward tcp:<port> jdwp:<pid>` created for this target.
@@ -18,13 +20,35 @@ const APP_ID_RE = /applicationId\s*=\s*"([^"]+)"/;
 const PIDOF_POLL_INTERVAL_MS = 300;
 const PIDOF_POLL_ATTEMPTS = 12; // ~3.6s after auto-start
 
-async function readAppBuildGradle(projectRoot: string): Promise<string | null> {
-	for (const name of ["app/build.gradle.kts", "app/build.gradle"]) {
-		const candidate = path.join(projectRoot, name);
-		try {
-			return await Bun.file(candidate).text();
-		} catch (error) {
-			if (!isEnoent(error)) throw error;
+async function findApplicationModule(projectRoot: string): Promise<{ gradleText: string; projectName: string } | null> {
+	// Build candidate module directories: conventional `app/` first, then
+	// other immediate subdirectories, then a root-level module.
+	const moduleDirs: string[] = ["app"];
+	try {
+		for (const entry of await fs.readdir(projectRoot, { withFileTypes: true })) {
+			if (entry.isDirectory() && entry.name !== "app" && !entry.name.startsWith(".")) {
+				moduleDirs.push(entry.name);
+			}
+		}
+	} catch (error) {
+		if (!isEnoent(error)) throw error;
+	}
+	moduleDirs.push("."); // root-level module
+	for (const dir of moduleDirs) {
+		for (const name of ["build.gradle.kts", "build.gradle"]) {
+			const rel = dir === "." ? name : `${dir}/${name}`;
+			const candidate = path.join(projectRoot, rel);
+			let text: string;
+			try {
+				text = await Bun.file(candidate).text();
+			} catch (error) {
+				if (isEnoent(error)) continue;
+				throw error;
+			}
+			if (APP_ID_RE.test(text)) {
+				const projectName = dir === "." ? path.basename(projectRoot) : dir;
+				return { gradleText: text, projectName };
+			}
 		}
 	}
 	return null;
@@ -75,11 +99,12 @@ async function reserveLocalPort(): Promise<number> {
  * forward fails, adb missing).
  */
 export async function resolveAndroidAttach(cwd: string, signal?: AbortSignal): Promise<AndroidAttachTarget | null> {
-	const gradleText = await readAppBuildGradle(cwd);
-	if (!gradleText) return null;
-	const appIdMatch = APP_ID_RE.exec(gradleText);
+	const module = await findApplicationModule(cwd);
+	if (!module) return null;
+	const appIdMatch = APP_ID_RE.exec(module.gradleText);
 	if (!appIdMatch) return null;
 	const applicationId = appIdMatch[1];
+	const projectName = module.projectName;
 
 	if (!Bun.which("adb")) {
 		throw new Error(
@@ -144,9 +169,9 @@ export async function resolveAndroidAttach(cwd: string, signal?: AbortSignal): P
 		if (retryRes.exitCode !== 0) {
 			throw new Error(`adb forward failed: ${retryRes.stderr || retryRes.stdout || "unknown error"}`);
 		}
-		return buildTarget(retryPort, pid, device, applicationId, cwd);
+		return buildTarget(retryPort, pid, device, applicationId, projectName, cwd);
 	}
-	return buildTarget(port, pid, device, applicationId, cwd);
+	return buildTarget(port, pid, device, applicationId, projectName, cwd);
 }
 
 function buildTarget(
@@ -154,6 +179,7 @@ function buildTarget(
 	pid: number,
 	device: string,
 	applicationId: string,
+	projectName: string,
 	projectRoot: string,
 ): AndroidAttachTarget {
 	return {
@@ -161,6 +187,7 @@ function buildTarget(
 		port,
 		projectRoot,
 		applicationId,
+		projectName,
 		pid,
 		device,
 		cleanup: async () => {

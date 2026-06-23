@@ -741,6 +741,7 @@ export class DebugTool implements AgentTool<typeof debugSchema, DebugToolDetails
 							extraAttachArguments: {
 								hostName: androidTarget.host,
 								port: androidTarget.port,
+								projectName: androidTarget.projectName,
 							},
 							onDispose: androidTarget.cleanup,
 						},
