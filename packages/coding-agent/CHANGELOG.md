@@ -34,6 +34,7 @@
 
 ### Fixed
 
+- Fixed the `explore` subagent skipping `switch_project` (and thus Token Savior reindexing) because its prompt said "no activation step needed" and `switch_project` was absent from its `mcp-preactivate` list. `explore.md` now pre-activates `switch_project` and instructs calling it first; `mcp-tools-subagent.md` is restructured into the same mandatory Step 1 (`switch_project`) / Step 2 (use MCP tools) protocol as the main `mcp-tools.md`, removing the contradictory "no activation step is needed" text.
 - Fixed Android (kotlin-debug-adapter) DAP attach timing out because the adapter processes `configurationDone` but never responds to it. The `launch`/`attach` flow now races the start request against the `configurationDone` handshake instead of blocking on the `configurationDone` response, proceeding as soon as the start response arrives. Error combining is preserved when both requests fail. `configurationDoneSent` is now set before awaiting the response so session state stays correct and `#ensureConfigurationDone` does not re-send.
 - Android (Kotlin) debug attach now fires breakpoints on ART: patched kotlin-debug-adapter with fallback source resolution (declaringType-based) and method-entry breakpoint fallback for DEX classes with stripped line numbers.
 
