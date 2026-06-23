@@ -8,6 +8,7 @@ import type {
 	DapAttachSessionOptions,
 	DapAttachTcpSessionOptions,
 	DapBreakpoint,
+	DapBreakpointEventBody,
 	DapBreakpointRecord,
 	DapCapabilities,
 	DapContinueArguments,
@@ -1195,6 +1196,9 @@ export class DapSessionManager {
 				session.lastStackFrames = [];
 			}
 		});
+		client.onEvent("breakpoint", body => {
+			this.#handleBreakpointEvent(session, body as DapBreakpointEventBody | undefined);
+		});
 		client.onEvent("exited", body => {
 			session.exitCode = (body as DapExitedEventBody | undefined)?.exitCode;
 		});
@@ -1278,6 +1282,27 @@ export class DapSessionManager {
 			text: stopped.text,
 		};
 		session.lastStackFrames = [];
+	}
+
+	#handleBreakpointEvent(session: DapSession, body: DapBreakpointEventBody | undefined): void {
+		const bp = body?.breakpoint;
+		if (!bp?.id) return;
+		const id = bp.id;
+		for (const records of session.breakpoints.values()) {
+			for (const record of records) {
+				if (record.id === id) {
+					record.verified = bp.verified;
+					record.message = bp.message;
+					if (bp.line !== undefined) record.line = bp.line;
+				}
+			}
+		}
+		for (const record of session.functionBreakpoints) {
+			if (record.id === id) {
+				record.verified = bp.verified;
+				record.message = bp.message;
+			}
+		}
 	}
 
 	#applyTopFrame(session: DapSession, frame: DapStackFrame | undefined): void {

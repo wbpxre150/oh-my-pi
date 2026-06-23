@@ -429,6 +429,11 @@ export interface DapContinuedEventBody {
 	allThreadsContinued?: boolean;
 }
 
+export interface DapBreakpointEventBody {
+	reason: "changed" | "new" | "removed";
+	breakpoint: DapBreakpoint;
+}
+
 export interface DapExitedEventBody {
 	exitCode?: number;
 }

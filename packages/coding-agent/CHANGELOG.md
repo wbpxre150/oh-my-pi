@@ -55,6 +55,8 @@
 
 - Fixed `stack_trace` ignoring the `thread_id` parameter — it always returned the main thread's stack. The `debug` tool now accepts `thread_id` for `stack_trace` and passes it through to the DAP `stackTrace` request, falling back to the resolved stopped thread when omitted.
 
+- Fixed pending breakpoints never resolving when the adapter reports async resolution. The session manager now registers a `breakpoint` event handler that updates cached source and function breakpoint records (verified status, message, line) by matching breakpoint `id` when JDT-LS sends `breakpoint` events with `reason: "changed"`. Previously these events were silently ignored, so breakpoints that the adapter resolved after class loading stayed `pending` in the cache forever.
+
 ## [15.10.3] - 2026-06-08
 
 ### Added
