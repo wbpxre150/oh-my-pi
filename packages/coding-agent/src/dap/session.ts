@@ -1164,10 +1164,15 @@ export class DapSessionManager {
 		const heartbeat = setInterval(() => {
 			if (!client.isAlive()) {
 				session.status = "terminated";
+				clearInterval(heartbeat);
 			}
 		}, HEARTBEAT_INTERVAL_MS);
 		heartbeat.unref?.();
-		client.proc.exited.finally(() => clearInterval(heartbeat));
+		// TCP sessions (e.g. JDT-LS java-debug) have no child process, so
+		// `client.proc` is null; the heartbeat above self-clears once
+		// `isAlive()` returns false (on socket close / dispose). stdio
+		// sessions additionally clear the heartbeat on process exit.
+		client.proc?.exited.finally(() => clearInterval(heartbeat));
 		return session;
 	}
 
