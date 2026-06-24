@@ -802,7 +802,8 @@ export class DebugTool implements AgentTool<typeof debugSchema, DebugToolDetails
 				);
 				details.snapshot = response.snapshot;
 				details.breakpoints = response.breakpoints;
-				return result.text(formatBreakpoints(response.sourcePath, response.breakpoints)).done();
+				const bpText = formatBreakpoints(response.sourcePath, response.breakpoints);
+				return result.text(response.warning ? `${bpText}\n${response.warning}` : bpText).done();
 			}
 			case "remove_breakpoint": {
 				if (params.function) {

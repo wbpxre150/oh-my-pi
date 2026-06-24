@@ -544,11 +544,18 @@ export class DapSessionManager {
 			timeoutMs,
 		);
 		session.breakpoints.set(sourcePath, this.#mapSourceBreakpoints(deduped, response?.breakpoints));
+		const warning = this.#kotlinBreakpointWarning(sourcePath, session);
 		return {
 			snapshot: buildSummary(session),
 			breakpoints: session.breakpoints.get(sourcePath) ?? [],
 			sourcePath,
+			...(warning ? { warning } : {}),
 		};
+	}
+
+	#kotlinBreakpointWarning(sourcePath: string, session: DapSession): string | undefined {
+		if (!sourcePath.endsWith(".kt") || !session.jvmVersionMismatch) return undefined;
+		return `Breakpoint verified by adapter, but JVM version mismatch (${session.jvmVersionMismatch}) may prevent Kotlin source mapping. Breakpoints on .kt files may not fire. Use pause + step or adb logcat for Kotlin debugging.`;
 	}
 
 	async removeBreakpoint(file: string, line: number, signal?: AbortSignal, timeoutMs: number = 30_000) {
