@@ -203,6 +203,9 @@ function formatSessionSnapshot(snapshot: DapSessionSummary): string[] {
 		lines.push("Configuration: pending configurationDone; set breakpoints, then continue.");
 	}
 	if (snapshot.exitCode !== undefined) lines.push(`Exit code: ${snapshot.exitCode}`);
+	if (snapshot.jvmVersionMismatch) {
+		lines.push(`Warning: JVM version mismatch (${snapshot.jvmVersionMismatch}). Source mapping may be unreliable.`);
+	}
 	return lines;
 }
 

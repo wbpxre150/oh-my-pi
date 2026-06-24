@@ -91,6 +91,7 @@ interface DapSession {
 	needsConfigurationDone: boolean;
 	configurationDoneSent: boolean;
 	onDispose?: () => Promise<void> | void;
+	jvmVersionMismatch?: string;
 }
 
 export interface DapOutputSnapshot {
@@ -220,6 +221,7 @@ function buildSummary(session: DapSession): DapSessionSummary {
 		outputTruncated: session.outputTruncated,
 		exitCode: session.exitCode,
 		needsConfigurationDone: session.needsConfigurationDone && !session.configurationDoneSent,
+		jvmVersionMismatch: session.jvmVersionMismatch,
 	};
 }
 
@@ -1179,7 +1181,16 @@ export class DapSessionManager {
 			return {};
 		});
 		client.onEvent("output", body => {
-			truncateOutput(session, (body as DapOutputEventBody | undefined)?.output ?? "");
+			const text = (body as DapOutputEventBody | undefined)?.output ?? "";
+			truncateOutput(session, text);
+			if (!session.jvmVersionMismatch) {
+				const match = session.output.match(
+					/Debugger JVM version:\s*(\S+)[\s\S]*?Debuggee JVM version:\s*(\S+)/,
+				);
+				if (match) {
+					session.jvmVersionMismatch = `debugger JVM ${match[1]} vs debuggee JVM ${match[2]}`;
+				}
+			}
 		});
 		client.onEvent("initialized", () => {
 			session.initializedSeen = true;

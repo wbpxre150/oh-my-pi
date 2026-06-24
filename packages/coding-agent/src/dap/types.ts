@@ -586,6 +586,7 @@ export interface DapSessionSummary {
 	outputTruncated: boolean;
 	exitCode?: number;
 	needsConfigurationDone: boolean;
+	jvmVersionMismatch?: string;
 }
 
 export interface DapContinueOutcome {
