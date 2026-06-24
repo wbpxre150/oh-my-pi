@@ -460,6 +460,9 @@ function formatSessions(sessions: DapSessionSummary[]): string {
 				...(session.program ? [`  program=${session.program}`] : []),
 				...(location ? [`  location=${location}`] : []),
 				...(session.stopReason ? [`  reason=${session.stopReason}`] : []),
+				...(session.jvmVersionMismatch
+					? [`  warning=JVM version mismatch (${session.jvmVersionMismatch}). Source mapping may be unreliable.`]
+					: []),
 			].join("\n");
 		})
 		.join("\n\n");
@@ -787,7 +790,8 @@ export class DebugTool implements AgentTool<typeof debugSchema, DebugToolDetails
 					);
 					details.snapshot = response.snapshot;
 					details.functionBreakpoints = response.breakpoints;
-					return result.text(formatFunctionBreakpoints(response.breakpoints)).done();
+					const bpText = formatFunctionBreakpoints(response.breakpoints);
+					return result.text(response.warning ? `${bpText}\n${response.warning}` : bpText).done();
 				}
 				if (!params.file || params.line === undefined) {
 					throw new ToolError("set_breakpoint requires file+line or function");
@@ -814,7 +818,8 @@ export class DebugTool implements AgentTool<typeof debugSchema, DebugToolDetails
 					);
 					details.snapshot = response.snapshot;
 					details.functionBreakpoints = response.breakpoints;
-					return result.text(formatFunctionBreakpoints(response.breakpoints)).done();
+					const bpText = formatFunctionBreakpoints(response.breakpoints);
+					return result.text(response.warning ? `${bpText}\n${response.warning}` : bpText).done();
 				}
 				if (!params.file || params.line === undefined) {
 					throw new ToolError("remove_breakpoint requires file+line or function");
@@ -828,7 +833,8 @@ export class DebugTool implements AgentTool<typeof debugSchema, DebugToolDetails
 				);
 				details.snapshot = response.snapshot;
 				details.breakpoints = response.breakpoints;
-				return result.text(formatBreakpoints(response.sourcePath, response.breakpoints)).done();
+				const bpText = formatBreakpoints(response.sourcePath, response.breakpoints);
+				return result.text(response.warning ? `${bpText}\n${response.warning}` : bpText).done();
 			}
 			case "set_instruction_breakpoint": {
 				requireCapability("supportsInstructionBreakpoints", "instruction breakpoints");
