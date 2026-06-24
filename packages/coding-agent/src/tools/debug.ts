@@ -204,7 +204,9 @@ function formatSessionSnapshot(snapshot: DapSessionSummary): string[] {
 	}
 	if (snapshot.exitCode !== undefined) lines.push(`Exit code: ${snapshot.exitCode}`);
 	if (snapshot.jvmVersionMismatch) {
-		lines.push(`Warning: JVM version mismatch (${snapshot.jvmVersionMismatch}). Source mapping may be unreliable.`);
+		lines.push(
+			`Warning: JVM version mismatch (${snapshot.jvmVersionMismatch}). Source mapping against ART is unreliable; breakpoints on application (.kt/.java) code may not fire. Prefer adb logcat, or pause + step_in, for app debugging.`,
+		);
 	}
 	return lines;
 }
@@ -461,7 +463,7 @@ function formatSessions(sessions: DapSessionSummary[]): string {
 				...(location ? [`  location=${location}`] : []),
 				...(session.stopReason ? [`  reason=${session.stopReason}`] : []),
 				...(session.jvmVersionMismatch
-					? [`  warning=JVM version mismatch (${session.jvmVersionMismatch}). Source mapping may be unreliable.`]
+					? [`  warning=JVM version mismatch (${session.jvmVersionMismatch}); app breakpoints may not fire.`]
 					: []),
 			].join("\n");
 		})
