@@ -956,7 +956,8 @@ export class DebugTool implements AgentTool<typeof debugSchema, DebugToolDetails
 				);
 				details.snapshot = response.snapshot;
 				details.evaluation = response.evaluation;
-				return result.text(formatEvaluation(response.evaluation)).done();
+				const evalText = formatEvaluation(response.evaluation);
+				return result.text(response.warning ? `${evalText}\n${response.warning}` : evalText).done();
 			}
 			case "stack_trace": {
 				const response = await dapSessionManager.stackTrace(

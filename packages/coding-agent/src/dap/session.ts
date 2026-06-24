@@ -1039,18 +1039,41 @@ export class DapSessionManager {
 		// Default to the top stopped frame so callers don't need to pass
 		// frame_id explicitly for the common case.
 		const effectiveFrameId = frameId ?? session.stop.frameId;
-		const response = await this.#sendRequestWithConfig<DapEvaluateResponse>(
-			session,
-			"evaluate",
-			{
-				expression,
-				context,
-				...(effectiveFrameId !== undefined ? { frameId: effectiveFrameId } : {}),
-			} satisfies DapEvaluateArguments,
-			signal,
-			timeoutMs,
-		);
-		return { snapshot: buildSummary(session), evaluation: response };
+		const warning = this.#evaluatePauseWarning(session);
+		let response: DapEvaluateResponse;
+		try {
+			response = await this.#sendRequestWithConfig<DapEvaluateResponse>(
+				session,
+				"evaluate",
+				{
+					expression,
+					context,
+					...(effectiveFrameId !== undefined ? { frameId: effectiveFrameId } : {}),
+				} satisfies DapEvaluateArguments,
+				signal,
+				timeoutMs,
+			);
+		} catch (error) {
+			const msg = toErrorMessage(error);
+			if (/suspended by step or breakpoint/i.test(msg)) {
+				throw new Error(
+					`${msg} Current suspension reason: "${session.stop.reason ?? "unknown"}". ` +
+						"Use step_in or step_over to suspend by step, then retry evaluate. " +
+						"Pause-only suspension does not support method invocation on ART/JDWP.",
+				);
+			}
+			throw error;
+		}
+		return {
+			snapshot: buildSummary(session),
+			evaluation: response,
+			...(warning ? { warning } : {}),
+		};
+	}
+
+	#evaluatePauseWarning(session: DapSession): string | undefined {
+		if (session.stop.reason !== "pause") return undefined;
+		return 'Thread is suspended via "pause". Method invocations may fail with "Thread must be suspended by step or breakpoint". Use step_in or step_over to suspend by step, then retry evaluate.';
 	}
 
 	getOutput(limitBytes?: number): DapOutputSnapshot {
