@@ -974,7 +974,8 @@ export class DebugTool implements AgentTool<typeof debugSchema, DebugToolDetails
 				);
 				details.snapshot = response.snapshot;
 				details.stackFrames = response.stackFrames;
-				return result.text(formatStackFrames(response.stackFrames)).done();
+				const text = formatStackFrames(response.stackFrames);
+				return result.text(response.warning ? `${text}\n${response.warning}` : text).done();
 			}
 			case "threads": {
 				const response = await dapSessionManager.threads(combinedSignal, timeoutSec * 1000);

@@ -995,7 +995,7 @@ export class DapSessionManager {
 		threadId: number | undefined,
 		signal?: AbortSignal,
 		timeoutMs: number = 30_000,
-	): Promise<{ snapshot: DapSessionSummary; stackFrames: DapStackFrame[]; totalFrames?: number }> {
+	): Promise<{ snapshot: DapSessionSummary; stackFrames: DapStackFrame[]; totalFrames?: number; warning?: string }> {
 		const session = this.#touchActiveSession();
 		const resolvedThreadId = threadId ?? (await this.#resolveThreadId(session, signal, timeoutMs));
 		const response = await this.#sendRequestWithConfig<DapStackTraceResponse>(
@@ -1008,12 +1008,18 @@ export class DapSessionManager {
 			signal,
 			timeoutMs,
 		);
-		session.lastStackFrames = response?.stackFrames ?? [];
-		this.#applyTopFrame(session, session.lastStackFrames[0]);
+		const stackFrames = response?.stackFrames ?? [];
+		session.lastStackFrames = stackFrames;
+		this.#applyTopFrame(session, stackFrames[0]);
+		const warning =
+			stackFrames.length === 0 && resolvedThreadId !== session.stop.threadId
+				? `No stack frames for thread ${resolvedThreadId}. Via JDT-LS on Android (ART/JDWP) only the stopped thread (id ${session.stop.threadId ?? "?"}) reliably exposes frames; other threads may return empty even when suspended, or the thread may be native with no Java frames. Call stack_trace without thread_id to inspect the stopped thread.`
+				: undefined;
 		return {
 			snapshot: buildSummary(session),
-			stackFrames: session.lastStackFrames,
+			stackFrames,
 			totalFrames: response?.totalFrames,
+			...(warning ? { warning } : {}),
 		};
 	}
 
@@ -1240,9 +1246,7 @@ export class DapSessionManager {
 			const text = (body as DapOutputEventBody | undefined)?.output ?? "";
 			truncateOutput(session, text);
 			if (!session.jvmVersionMismatch) {
-				const match = session.output.match(
-					/Debugger JVM version:\s*(\S+)[\s\S]*?Debuggee JVM version:\s*(\S+)/,
-				);
+				const match = session.output.match(/Debugger JVM version:\s*(\S+)[\s\S]*?Debuggee JVM version:\s*(\S+)/);
 				if (match) {
 					session.jvmVersionMismatch = `debugger JVM ${match[1]} vs debuggee JVM ${match[2]}`;
 				}
@@ -1382,6 +1386,15 @@ export class DapSessionManager {
 		session.stop.column = frame.column;
 	}
 
+	#isNativeStopFrame(session: DapSession): boolean {
+		// A frame parked in a native method (e.g. MessageQueue.nativePollOnce)
+		// carries a frame name but no source path. JDI cannot step over such
+		// frames, so step_over would hang until the request timeout. Require a
+		// frame name so a not-yet-fetched stop (no frame applied) is not mistaken
+		// for a native frame.
+		return session.stop.frameName !== undefined && !session.stop.source?.path;
+	}
+
 	/**
 	 * Fetch the top stack frame from the adapter and apply it to the session's
 	 * stop location. Called outside the event dispatch loop to avoid deadlocking
@@ -1408,6 +1421,13 @@ export class DapSessionManager {
 
 	async #step(command: "stepIn" | "stepOut" | "next", signal?: AbortSignal, timeoutMs: number = 30_000) {
 		const session = this.#touchActiveSession();
+		if (command === "next" && this.#isNativeStopFrame(session)) {
+			throw new Error(
+				`Cannot step over: the current frame is a native method without source mapping (${session.stop.frameName ?? "unknown"}). ` +
+					"JDI cannot step over native frames (e.g. MessageQueue.nativePollOnce); the request would hang until timeout. " +
+					"Use step_in to advance past it, or set a breakpoint in Java/Kotlin code and call continue.",
+			);
+		}
 		const threadId = await this.#resolveThreadId(session, signal, timeoutMs);
 		// Reset state and subscribe BEFORE sending the step command to avoid
 		// missing events that arrive in the same buffer as the response.
