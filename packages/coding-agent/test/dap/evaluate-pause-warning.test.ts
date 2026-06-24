@@ -99,13 +99,13 @@ describe("DapSessionManager evaluate pause warning (Bug #3)", () => {
 
 		fake.setSendRequestHandler(command => {
 			if (command === "evaluate") {
-				throw new Error("Compilation failed: cannot find symbol");
+				throw new Error("Compilation failed: unexpected token");
 			}
 			return {};
 		});
 
 		fake.emit("stopped", { reason: "step", threadId: 1 });
 
-		expect(manager.evaluate("undefinedVar", "repl")).rejects.toThrow("Compilation failed: cannot find symbol");
+		expect(manager.evaluate("undefinedVar", "repl")).rejects.toThrow("Compilation failed: unexpected token");
 	});
 });

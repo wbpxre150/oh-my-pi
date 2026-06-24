@@ -1079,6 +1079,15 @@ export class DapSessionManager {
 						"Pause-only suspension does not support method invocation on ART/JDWP.",
 				);
 			}
+			if (/ClassNotFoundException|cannot (?:resolve|find) (?:symbol|type|class)|unable to resolve/i.test(msg)) {
+				throw new Error(
+					`${msg}\n` +
+						"The expression references a class the debugger host cannot resolve. " +
+						"JDT-LS evaluates expressions on the host JVM, not the Android debuggee (ART); " +
+						"application classes exist only as .dex on the device and are not on the host classpath. " +
+						"Use adb logcat or the app's HTTP control server to inspect application state.",
+				);
+			}
 			throw error;
 		}
 		return {
