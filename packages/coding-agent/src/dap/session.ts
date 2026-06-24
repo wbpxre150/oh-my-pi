@@ -558,6 +558,11 @@ export class DapSessionManager {
 		return `Breakpoint verified by adapter, but JVM version mismatch (${session.jvmVersionMismatch}) may prevent Kotlin source mapping. Breakpoints on .kt files may not fire. Use pause + step or adb logcat for Kotlin debugging.`;
 	}
 
+	#functionBreakpointWarning(session: DapSession): string | undefined {
+		if (!session.jvmVersionMismatch) return undefined;
+		return `Breakpoint verified by adapter, but JVM version mismatch (${session.jvmVersionMismatch}) may prevent source mapping. Function breakpoints may not fire. Use pause + step or adb logcat for debugging.`;
+	}
+
 	async removeBreakpoint(file: string, line: number, signal?: AbortSignal, timeoutMs: number = 30_000) {
 		const session = this.#touchActiveSession();
 		const sourcePath = normalizePath(file);
@@ -580,10 +585,12 @@ export class DapSessionManager {
 		} else {
 			session.breakpoints.set(sourcePath, this.#mapSourceBreakpoints(current, response?.breakpoints));
 		}
+		const warning = current.length > 0 ? this.#kotlinBreakpointWarning(sourcePath, session) : undefined;
 		return {
 			snapshot: buildSummary(session),
 			breakpoints: session.breakpoints.get(sourcePath) ?? [],
 			sourcePath,
+			...(warning ? { warning } : {}),
 		};
 	}
 
@@ -605,7 +612,12 @@ export class DapSessionManager {
 			timeoutMs,
 		);
 		session.functionBreakpoints = this.#mapFunctionBreakpoints(current, response?.breakpoints);
-		return { snapshot: buildSummary(session), breakpoints: session.functionBreakpoints };
+		const warning = this.#functionBreakpointWarning(session);
+		return {
+			snapshot: buildSummary(session),
+			breakpoints: session.functionBreakpoints,
+			...(warning ? { warning } : {}),
+		};
 	}
 
 	async removeFunctionBreakpoint(name: string, signal?: AbortSignal, timeoutMs: number = 30_000) {
@@ -624,7 +636,12 @@ export class DapSessionManager {
 			timeoutMs,
 		);
 		session.functionBreakpoints = this.#mapFunctionBreakpoints(current, response?.breakpoints);
-		return { snapshot: buildSummary(session), breakpoints: session.functionBreakpoints };
+		const warning = current.length > 0 ? this.#functionBreakpointWarning(session) : undefined;
+		return {
+			snapshot: buildSummary(session),
+			breakpoints: session.functionBreakpoints,
+			...(warning ? { warning } : {}),
+		};
 	}
 
 	async setInstructionBreakpoint(

@@ -124,4 +124,47 @@ describe("DapSessionManager Kotlin breakpoint warning (Bug #1)", () => {
 
 		expect(result.warning).toBeUndefined();
 	});
+
+	it("includes warning when removing a .kt breakpoint with remaining breakpoints and JVM mismatch", async () => {
+		const { manager, fake } = await attachFake();
+
+		fake.emit("output", {
+			output: "Debugger JVM version: 21.0.11\nDebuggee JVM version: 8\n",
+		});
+
+		fake.setSendRequestHandler(command => {
+			if (command === "setBreakpoints") {
+				return { breakpoints: [{ verified: true, line: 185 }] };
+			}
+			return {};
+		});
+
+		await manager.setBreakpoint("src/DaemonService.kt", 168);
+		await manager.setBreakpoint("src/DaemonService.kt", 185);
+
+		const result = await manager.removeBreakpoint("src/DaemonService.kt", 168);
+
+		expect(result.warning).toBeDefined();
+		expect(result.warning).toContain("JVM version mismatch");
+	});
+
+	it("does not include warning when removing the last .kt breakpoint even with JVM mismatch", async () => {
+		const { manager, fake } = await attachFake();
+
+		fake.emit("output", {
+			output: "Debugger JVM version: 21.0.11\nDebuggee JVM version: 8\n",
+		});
+
+		fake.setSendRequestHandler(command => {
+			if (command === "setBreakpoints") {
+				return { breakpoints: [] };
+			}
+			return {};
+		});
+
+		await manager.setBreakpoint("src/DaemonService.kt", 185);
+		const result = await manager.removeBreakpoint("src/DaemonService.kt", 185);
+
+		expect(result.warning).toBeUndefined();
+	});
 });
