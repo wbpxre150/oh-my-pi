@@ -12,13 +12,22 @@
   per-slot checkpoints.
 
 
+- Reasoning subagent (`reasoning`): a tool-less agent that runs the local reasoning model (llamacpp) via a direct single-turn LLM call with `toolChoice: "none"`. Accessible from plan mode like `explore`. Uses new local-inference tier `r` (config: `modelTier.reasoning`, `agentConcurrency.reasoning`). The caller supplies all context in the assignment; the agent returns a text solution the main model verifies and implements.
+
+- `toolless: true` agent frontmatter flag: marks an agent as running a single tool-less LLM turn (no tools, no yield), bypassing the subagent tool-loop.
+
+- `AgentSession.runToollessTurn`: direct tool-less LLM turn primitive (generalizes the `runEphemeralTurn` side-channel pattern for subagent dispatch).
+
+- `resolveLocalInferenceTier` helper: pure tier/slot resolution for a given agent name.
 - Added a `debug` bundled agent with all 31 Token Savior MCP tools pre-activated, the MCP code navigation prompt injected, and the DAP `debug` tool available. Bakes in debugging rules (read code first, reproduce, use DAP breakpoints, one-pass fix) so the user does not have to re-type them. Inherits the parent model and is blocking.
 
 - `/db` slash command toggles debug mode: activates Token Savior MCP tools and the DAP debug tool, injects a find-and-report system prompt, and writes a bug report to `BUG-REPORT.md` in the project root. Mutually exclusive with plan and goal modes.
 
 ### Changed
 - Local inference restart script now accepts a second argument for model tier: `~/ai.sh <slots> <f|s>` where `f` is the fast 35B model and `s` is the slow 27B model. Explore agents use `f`, task agents use `s`. A tier change forces a server restart even when the slot count is unchanged. The tier is resolved from a new `modelTier` config block in `~/.omp/agent/local-inference.yml` (defaults: `explore: "f"`, `task: "s"`) and persisted in `.local-inference-state.json` alongside the slot count.
-- Replaced `kotlin-debug-adapter` with JDT-LS + java-debug plugin for Android (Java/Kotlin) debugging. The `debug(action: "attach")` auto-detection now starts a JDT-LS LSP server, calls `vscode.java.startDebugSession` to obtain a DAP TCP port, and connects via `DapClient.connectTcp`. The JDWP forwarded port is passed as the DAP `attach` target. JDT-LS must be installed and on PATH (`jdtls`); the java-debug plugin must be registered in JDT-LS `config.ini` via `osgi.bundles`.
+- `ModelTier` type extended to `"f" | "s" | "r"`; `LocalInferenceConfigSchema` gains `modelTier.reasoning` (default `"r"`) and `agentConcurrency.reasoning` (default `1`).
+- Task tool plan-mode override now exempts `toolless` agents: they keep their own system prompt and receive no `planModeTools` (a tool-less model cannot call tools, and the plan-mode-subagent prompt instructs tool usage).
+- Replaced `kotlin-debug-adapter` with JDT-LS + java-debug plugin for Android (Java/Kotlin) debugging. The `debug(action: "attach")` auto-detection now starts a JDT-LS LSP server, calls `vscode.java.startDebugSession` to obtain a DAP TCP port, and connects via `DapClient.connectTcp`. The JDWP forwarded port is passed as the DAP `attach` target. JDT-LS must be installed on PATH (`jdtls`); the java-debug plugin must be registered in JDT-LS `config.ini` via `osgi.bundles`.
 
 - Removed the Token Savior MCP activation prompt from the main agent's system prompt. The main agent no longer calls `search_tool_bm25` and `switch_project` on every task. MCP tools are still available via manual `search_tool_bm25` discovery, and plan mode retains MCP. The plan-mode active prompt now explicitly instructs the planner that stage files MUST NOT reference MCP tools for task subagents (which have MCP disabled).
 - Updated the subagent MCP prompt (`mcp-tools-subagent.md`) to tell subagents to call `switch_project` themselves, since the main agent no longer pre-activates the project. This is idempotent and safe for existing subagents (e.g. `explore` in plan mode).

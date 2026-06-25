@@ -8999,7 +8999,7 @@ export class AgentSession {
 		];
 		const llmMessages = await this.convertMessagesToLlm(snapshot, args.signal);
 		const context: Context = {
-			systemPrompt: args.systemPrompt,
+			systemPrompt: [args.systemPrompt],
 			messages: llmMessages,
 			tools: [],
 		};
