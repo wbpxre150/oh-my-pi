@@ -17,6 +17,7 @@ export interface Args {
 	smol?: string;
 	slow?: string;
 	plan?: string;
+	debug?: string;
 	apiKey?: string;
 	systemPrompt?: string;
 	appendSystemPrompt?: string;
@@ -137,6 +138,8 @@ export function parseArgs(inputArgs: string[], extensionFlags?: Map<string, { ty
 			result.slow = args[++i];
 		} else if (arg === "--plan" && i + 1 < args.length) {
 			result.plan = args[++i];
+		} else if (arg === "--debug" && i + 1 < args.length) {
+			result.debug = args[++i];
 		} else if (arg === "--api-key" && i + 1 < args.length) {
 			result.apiKey = args[++i];
 		} else if (arg === "--system-prompt" && i + 1 < args.length) {
@@ -298,6 +301,7 @@ export function getExtraHelpText(): string {
   PI_SMOL_MODEL              - Override smol/fast model (see --smol)
   PI_SLOW_MODEL              - Override slow/reasoning model (see --slow)
   PI_PLAN_MODEL              - Override planning model (see --plan)
+  PI_DEBUG_MODEL             - Override debug model (see --debug)
   PI_NO_PTY                  - Disable PTY-based interactive bash execution
 
   For complete environment variable reference, see:

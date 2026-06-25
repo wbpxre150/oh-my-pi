@@ -908,11 +908,13 @@ export async function runRootCommand(
 	const smolModel = parsedArgs.smol ?? $env.PI_SMOL_MODEL;
 	const slowModel = parsedArgs.slow ?? $env.PI_SLOW_MODEL;
 	const planModel = parsedArgs.plan ?? $env.PI_PLAN_MODEL;
-	if (smolModel || slowModel || planModel) {
+	const debugModel = parsedArgs.debug ?? $env.PI_DEBUG_MODEL;
+	if (smolModel || slowModel || planModel || debugModel) {
 		settingsInstance.overrideModelRoles({
 			smol: smolModel,
 			slow: slowModel,
 			plan: planModel,
+			debug: debugModel,
 		});
 	}
 

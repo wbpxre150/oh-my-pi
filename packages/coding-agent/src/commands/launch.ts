@@ -34,6 +34,9 @@ export default class Index extends Command {
 		plan: Flags.string({
 			description: "Plan model for architectural planning (or PI_PLAN_MODEL env)",
 		}),
+		debug: Flags.string({
+			description: "Debug model for /db debug mode (or PI_DEBUG_MODEL env)",
+		}),
 		provider: Flags.string({
 			description: "Provider to use (legacy; prefer --model)",
 		}),
