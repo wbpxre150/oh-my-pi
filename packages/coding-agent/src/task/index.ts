@@ -1255,6 +1255,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						const liConfig = liResult.value;
 						const slotLimit =
 							agentName === "explore" ? liConfig.agentConcurrency.explore : liConfig.agentConcurrency.task;
+						const desiredTier = agentName === "explore" ? liConfig.modelTier.explore : liConfig.modelTier.task;
 						effectiveMaxConcurrency = Math.min(maxConcurrency, slotLimit);
 						// Hard guard: local-inference servers have a fixed slot budget. Reject
 						// over-limit batches before any subagent starts so the model corrects and
@@ -1290,6 +1291,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 						const activeSlots = await ensureLocalInferenceSlots(
 							agentName,
 							desiredSlots,
+							desiredTier,
 							liConfig,
 							liProvider.baseUrl,
 						);
