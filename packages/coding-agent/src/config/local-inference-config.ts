@@ -1,6 +1,8 @@
 import * as z from "zod/v4";
 import { ConfigFile } from "./config-file";
 
+export type ModelTier = "f" | "s";
+
 export const LocalInferenceConfigSchema = z.object({
 	ssh: z
 		.object({
@@ -41,6 +43,21 @@ export const LocalInferenceConfigSchema = z.object({
 			task: z.number().int().positive().default(1),
 		})
 		.default({ explore: 2, task: 1 }),
+	modelTier: z
+		.object({
+			/**
+			 * Model tier passed to the remote restart script for the `explore` agent.
+			 * "f" = fast 35B model. Explore agents are lightweight and benefit from the
+			 * faster model.
+			 */
+			explore: z.enum(["f", "s"]).default("f"),
+			/**
+			 * Model tier for the `task` agent (and all other non-explore agents).
+			 * "s" = slow 27B model. Task agents run serially with maximum context.
+			 */
+			task: z.enum(["s", "f"]).default("s"),
+		})
+		.default({ explore: "f", task: "s" }),
 });
 
 export type LocalInferenceConfig = z.infer<typeof LocalInferenceConfigSchema>;
