@@ -296,6 +296,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	loopModeEnabled = false;
 	debugModeEnabled = false;
 	#debugModePreviousTools: string[] | undefined;
+	#debugModePreviousModelState: { model: Model; thinkingLevel?: ThinkingLevel } | undefined;
 	loopPrompt: string | undefined = undefined;
 	loopLimit: LoopLimitRuntime | undefined = undefined;
 	#loopAutoSubmitTimer: NodeJS.Timeout | undefined;
@@ -1422,6 +1423,35 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 	}
 
+	async #applyDebugModeModel(): Promise<void> {
+		const resolved = this.session.resolveRoleModelWithThinking("debug");
+		if (!resolved.model) return;
+
+		const currentModel = this.session.model;
+		const sameModel = modelsAreEqual(currentModel, resolved.model);
+		const debugThinkingLevel = resolved.explicitThinkingLevel ? resolved.thinkingLevel : undefined;
+
+		this.#debugModePreviousModelState = currentModel
+			? { model: currentModel, thinkingLevel: this.session.thinkingLevel }
+			: undefined;
+
+		if (!sameModel) {
+			if (this.session.isStreaming) {
+				this.#pendingModelSwitch = { model: resolved.model, thinkingLevel: debugThinkingLevel };
+				return;
+			}
+			try {
+				await this.session.setModelTemporary(resolved.model, debugThinkingLevel);
+			} catch (error) {
+				this.showWarning(
+					`Failed to switch to debug model for debug mode: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		} else if (debugThinkingLevel) {
+			this.session.setThinkingLevel(debugThinkingLevel);
+		}
+	}
+
 	/** Apply any deferred model switch after the current stream ends. */
 	async flushPendingModelSwitch(): Promise<void> {
 		const pending = this.#pendingModelSwitch;
@@ -1475,6 +1505,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			this.session.setDebugModeState(undefined);
 			this.debugModeEnabled = false;
 			this.#debugModePreviousTools = undefined;
+			this.#debugModePreviousModelState = undefined;
 			this.#updateDebugModeStatus();
 		}
 	}
@@ -1685,6 +1716,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (this.session.isStreaming) {
 			await this.session.sendDebugModeContext({ deliverAs: "steer" });
 		}
+		await this.#applyDebugModeModel();
 		this.#updateDebugModeStatus();
 		this.sessionManager.appendModeChange("debug");
 		this.showStatus("Debug mode enabled. Find and report bugs to BUG-REPORT.md.");
@@ -1699,9 +1731,36 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (previousTools && previousTools.length > 0) {
 			await this.session.setActiveToolsByName(previousTools);
 		}
+		if (this.#debugModePreviousModelState) {
+			const prev = this.#debugModePreviousModelState;
+			if (modelsAreEqual(this.session.model, prev.model)) {
+				// Same model — only thinking level may differ. Avoid setModelTemporary()
+				// which would reset provider-side sessions (openai-responses/Codex) and
+				// break conversation continuity.
+				this.session.setThinkingLevel(prev.thinkingLevel);
+			} else if (this.session.isStreaming) {
+				this.#pendingModelSwitch = { model: prev.model, thinkingLevel: prev.thinkingLevel };
+			} else {
+				await this.session.setModelTemporary(prev.model, prev.thinkingLevel);
+			}
+			// If #applyDebugModeModel queued a deferred switch to the debug-role model
+			// (because the session was streaming on entry), drop it now: we are
+			// leaving debug mode, so flushing it on the next agent_end would land the
+			// session on the debug-role model after the user has exited debug mode.
+			// Only clear when the pending target matches the debug-role model — leave
+			// any unrelated user-queued switch intact.
+			const pending = this.#pendingModelSwitch;
+			if (pending) {
+				const debugResolution = this.session.resolveRoleModelWithThinking("debug");
+				if (debugResolution.model && modelsAreEqual(pending.model, debugResolution.model)) {
+					this.#pendingModelSwitch = undefined;
+				}
+			}
+		}
 		this.session.setDebugModeState(undefined);
 		this.debugModeEnabled = false;
 		this.#debugModePreviousTools = undefined;
+		this.#debugModePreviousModelState = undefined;
 		this.#updateDebugModeStatus();
 		this.sessionManager.appendModeChange("none");
 		if (!options?.silent) {
