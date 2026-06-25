@@ -179,6 +179,8 @@ export interface AgentDefinition {
 	autoloadSkills?: string[];
 	/** When `false`, the agent's `read` tool returns verbatim file content instead of structural summaries. */
 	readSummarize?: boolean;
+	/** When true, the agent runs as a single tool-less LLM turn (no tools, no `yield`). Returns text only. */
+	toolless?: boolean;
 	source: AgentSource;
 	filePath?: string;
 }

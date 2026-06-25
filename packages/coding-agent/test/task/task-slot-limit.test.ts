@@ -82,8 +82,8 @@ function mockConfig() {
 		value: {
 			ssh: { host: "test-host", restartScript: "~/ai.sh" },
 			healthCheck: { timeoutMs: 500, pollIntervalMs: 10 },
-			agentConcurrency: { explore: 2, task: 1 },
-			modelTier: { explore: "f", task: "s" },
+			agentConcurrency: { explore: 2, task: 1, reasoning: 1 },
+			modelTier: { explore: "f", task: "s", reasoning: "r" },
 		},
 	});
 }

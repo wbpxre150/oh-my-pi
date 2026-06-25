@@ -213,6 +213,7 @@ export interface ParsedAgentFields {
 	thinkingLevel?: ThinkingLevel;
 	autoloadSkills?: string[];
 	readSummarize?: boolean;
+	toolless?: boolean;
 	blocking?: boolean;
 	disableMCP?: boolean;
 	mcpPrompt?: boolean;
@@ -280,6 +281,7 @@ export function parseAgentFields(frontmatter: Record<string, unknown>): ParsedAg
 	const model = parseModelList(frontmatter.model);
 	const blocking = parseBoolean(frontmatter.blocking);
 	const readSummarize = parseBoolean(frontmatter.readSummarize);
+	const toolless = parseBoolean(frontmatter.toolless);
 	const autoloadSkills = parseArrayOrCSV(frontmatter.autoloadSkills)
 		?.map(s => s.trim())
 		.filter(Boolean);
@@ -297,6 +299,7 @@ export function parseAgentFields(frontmatter: Record<string, unknown>): ParsedAg
 		blocking,
 		autoloadSkills,
 		readSummarize,
+		toolless,
 		disableMCP,
 		mcpPrompt,
 		mcpPreactivate,

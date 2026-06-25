@@ -1,7 +1,7 @@
 import * as z from "zod/v4";
 import { ConfigFile } from "./config-file";
 
-export type ModelTier = "f" | "s";
+export type ModelTier = "f" | "s" | "r";
 
 export const LocalInferenceConfigSchema = z.object({
 	ssh: z
@@ -41,8 +41,13 @@ export const LocalInferenceConfigSchema = z.object({
 			 * Should be 1 to maximize context window per task.
 			 */
 			task: z.number().int().positive().default(1),
+			/**
+			 * Slots for the `reasoning` agent type.
+			 * Should be 1 as reasoning models are heavy and serial.
+			 */
+			reasoning: z.number().int().positive().default(1),
 		})
-		.default({ explore: 2, task: 1 }),
+		.default({ explore: 2, task: 1, reasoning: 1 }),
 	modelTier: z
 		.object({
 			/**
@@ -50,14 +55,19 @@ export const LocalInferenceConfigSchema = z.object({
 			 * "f" = fast 35B model. Explore agents are lightweight and benefit from the
 			 * faster model.
 			 */
-			explore: z.enum(["f", "s"]).default("f"),
+			explore: z.enum(["f", "s", "r"]).default("f"),
 			/**
 			 * Model tier for the `task` agent (and all other non-explore agents).
 			 * "s" = slow 27B model. Task agents run serially with maximum context.
 			 */
-			task: z.enum(["s", "f"]).default("s"),
+			task: z.enum(["s", "f", "r"]).default("s"),
+			/**
+			 * Model tier for the `reasoning` agent.
+			 * "r" = reasoning model loaded with reasoning-enabled server config.
+			 */
+			reasoning: z.enum(["f", "s", "r"]).default("r"),
 		})
-		.default({ explore: "f", task: "s" }),
+		.default({ explore: "f", task: "s", reasoning: "r" }),
 });
 
 export type LocalInferenceConfig = z.infer<typeof LocalInferenceConfigSchema>;
