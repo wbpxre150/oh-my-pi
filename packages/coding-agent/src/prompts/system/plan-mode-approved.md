@@ -14,10 +14,17 @@ These are ALL the stage files for this plan. Do not search for or expect any add
 IMPORTANT: The model server for this session runs with {{localInferenceSlotLimit}} parallel slot(s). You MUST spawn subagents one at a time (each `task` call must contain exactly 1 task). Do not batch multiple tasks in a single call.
 
 {{/if}}
-<instruction>
-You MUST NOT read the stage files or execute any stage yourself. For each stage in order (sequentially, one at a time), spawn a task subagent with a complete self-contained assignment that instructs the subagent to read the stage file at its local:// path and execute its instructions in full. The assignment must name the stage file path explicitly and include acceptance criteria. The files already exist on disk. Do NOT recreate or rewrite them.
+<critical>
+You MUST NOT read the stage files. You MUST NOT read any source files or explore the codebase. You MUST NOT execute any stage work yourself. Your ONLY job is to spawn task subagents — one per stage, in order — and wait for each to complete before spawning the next.
+</critical>
 
-The subagent's system prompt already contains the full plan content — do NOT repeat it in `context`. Use `context` only for shared background the plan does not cover (project conventions, environment quirks, shared constraints across stages). Each assignment MUST explicitly tell the subagent: (a) the stage file path to read, (b) to follow ALL instructions in the stage file including any `git commit` step after verification passes, and (c) the acceptance criteria.
+<instruction>
+For each stage in order (sequentially, one at a time), spawn a task subagent whose assignment:
+- Names the stage file path explicitly (from the list above) and tells the subagent to read it and execute ALL instructions in it in full, including any `git commit` step after verification passes.
+- States the acceptance criteria for that stage.
+- In `context`: include only the contents of AGENTS.md (already in your conversation context — copy it verbatim, do not re-read it). Do not explore the codebase or read any other files to build context. The stage file and AGENTS.md are all the subagent needs.
+
+The files already exist on disk. Do NOT recreate or rewrite them.
 {{#has tools "todo"}}
 Before execution, initialize todo tracking with `todo`.
 After each completed stage, immediately update `todo`.
@@ -26,5 +33,5 @@ If `todo` fails, fix the payload and retry before continuing.
 </instruction>
 
 <critical>
-You MUST keep going until complete. This matters.
+You MUST keep going until all stages are complete. This matters.
 </critical>

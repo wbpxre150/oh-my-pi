@@ -46,8 +46,7 @@ describe("DapSessionManager JVM version mismatch detection", () => {
 		const { manager, fake } = await attachFake();
 
 		fake.emit("output", {
-			output:
-				"Debugger JVM version: 21.0.11\nDebuggee JVM version: 8\n",
+			output: "Debugger JVM version: 21.0.11\nDebuggee JVM version: 8\n",
 		});
 
 		const snapshot = manager.getActiveSession();

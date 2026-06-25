@@ -16,6 +16,7 @@ import packageJson from "../../package.json" with { type: "json" };
 import type { Effort } from "../effort";
 import { getSupportedEfforts } from "../model-thinking";
 import { calculateCost } from "../models";
+import { UNK_MAX_TOKENS } from "../provider-models/openai-compat";
 import { getEnvApiKey } from "../stream";
 import {
 	type AssistantMessage,
@@ -82,7 +83,6 @@ import {
 	joinTextWithImagePlaceholder,
 	NON_VISION_IMAGE_PLACEHOLDER,
 } from "./vision-guard";
-import { UNK_MAX_TOKENS } from "../provider-models/openai-compat";
 
 /**
  * Normalize tool call ID for Mistral.
@@ -1247,7 +1247,6 @@ function buildParams(
 		compat.allowsSyntheticReasoningContentForToolCalls = false;
 		compat.reasoningContentField = "reasoning_content";
 	}
-	const isKimiModelId = model.id.includes("moonshotai/kimi") || /(^|\/)kimi[-.]/i.test(model.id);
 	const messages = convertMessages(model, context, compat);
 	maybeAddAnthropicCacheControl(compat, messages);
 	const supportsReasoningParams = model.provider !== "github-copilot";
@@ -1260,8 +1259,8 @@ function buildParams(
 	// before the final answer. Always send max_tokens — match the same
 	// Kimi-family regex used by the compat detector.
 	// Note: Direct kimi-code provider is handled by the dedicated Kimi provider in kimi.ts.
-	const effectiveMaxTokens = options?.maxTokens ??
-		(model.maxTokens > 0 && model.maxTokens !== UNK_MAX_TOKENS ? model.maxTokens : undefined);
+	const effectiveMaxTokens =
+		options?.maxTokens ?? (model.maxTokens > 0 && model.maxTokens !== UNK_MAX_TOKENS ? model.maxTokens : undefined);
 
 	const requestModelId = resolveOpenAICompletionsModelId(model, options);
 	const params: OpenAICompletionsParams = {
