@@ -8970,6 +8970,76 @@ export class AgentSession {
 	}
 
 	/**
+	 * Run a single tool-less LLM turn against an explicit model + system prompt
+	 * + user message. No tools are sent (tools: [] + toolChoice: "none"), so the
+	 * model cannot call tools — used for reasoning models that lack tool support.
+	 * Does not read or modify session history. The session is only used for its
+	 * model registry (API key), stream-option preparation, and message conversion.
+	 */
+	async runToollessTurn(args: {
+		model: Model;
+		systemPrompt: string;
+		userMessage: string;
+		signal?: AbortSignal;
+		thinkingLevel?: ThinkingLevel;
+		onTextDelta?: (delta: string) => void;
+	}): Promise<{ replyText: string; assistantMessage: AssistantMessage }> {
+		const apiKey = await this.#modelRegistry.getApiKey(args.model, this.sessionId);
+		if (!apiKey) {
+			throw new Error(`No API key for ${args.model.provider}/${args.model.id}`);
+		}
+
+		const snapshot: AgentMessage[] = [
+			{
+				role: "user",
+				content: [{ type: "text", text: args.userMessage }],
+				attribution: "agent",
+				timestamp: Date.now(),
+			},
+		];
+		const llmMessages = await this.convertMessagesToLlm(snapshot, args.signal);
+		const context: Context = {
+			systemPrompt: args.systemPrompt,
+			messages: llmMessages,
+			tools: [],
+		};
+		const options = this.prepareSimpleStreamOptions(
+			{
+				apiKey,
+				sessionId: `${this.sessionId}:toolless:${Snowflake.next()}`,
+				preferWebsockets: false,
+				reasoning: toReasoningEffort(args.thinkingLevel),
+				signal: args.signal,
+				toolChoice: "none",
+			},
+			args.model.provider,
+		);
+
+		let replyText = "";
+		let assistantMessage: AssistantMessage | undefined;
+		const stream = streamSimple(args.model, context, options);
+		for await (const event of stream) {
+			if (event.type === "text_delta") {
+				replyText += event.delta;
+				args.onTextDelta?.(event.delta);
+				continue;
+			}
+			if (event.type === "done") {
+				assistantMessage = event.message;
+				break;
+			}
+			if (event.type === "error") {
+				throw new Error(event.error.errorMessage || "Toolless turn failed");
+			}
+		}
+
+		if (!assistantMessage) {
+			throw new Error("Toolless turn ended without a final message");
+		}
+		return { replyText, assistantMessage };
+	}
+
+	/**
 	 * Build a message snapshot for an ephemeral side-channel turn.  Includes
 	 * the in-flight streaming assistant message (if any) so the model sees
 	 * the partial response in context, then appends the prompt as a virtual

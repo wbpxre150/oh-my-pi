@@ -7,6 +7,7 @@
 import path from "node:path";
 import type { AgentEvent, AgentIdentity, AgentTelemetryConfig, ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import { recordHandoff, resolveTelemetry } from "@oh-my-pi/pi-agent-core";
+import type { Model, Api } from "@oh-my-pi/pi-ai";
 import { runWithSlotId } from "@oh-my-pi/pi-ai";
 import { logger, prompt, untilAborted } from "@oh-my-pi/pi-utils";
 import { ModelRegistry } from "../config/model-registry";
@@ -610,6 +611,136 @@ export function createSubagentSettings(
 		...overrides,
 	});
 }
+/**
+ * Options for running a tool-less subagent (reasoning model with no tool support).
+ */
+export interface RunToollessSubagentOptions {
+	agent: AgentDefinition;
+	task: string;
+	context?: string;
+	assignment: string;
+	description?: string;
+	index: number;
+	id: string;
+	model: Model<Api>;
+	thinkingLevel?: ThinkingLevel;
+	signal?: AbortSignal;
+	session: AgentSession;
+	taskStart: number;
+}
+
+/**
+ * Run a tool-less reasoning subagent: single direct LLM turn with no tools.
+ * Model cannot call tools (including yield), so the subagent tool-loop is
+ * bypassed entirely. Returns SingleResult shaped exactly like runSubprocess's
+ * success path so the task tool's result aggregation is unchanged.
+ */
+export async function runToollessSubagent(
+	options: RunToollessSubagentOptions,
+): Promise<SingleResult> {
+	const { agent, task, context, assignment, description, index, id, model, thinkingLevel, signal, session, taskStart } =
+		options;
+
+	// Check if already aborted
+	if (signal?.aborted) {
+		const message = signal.reason instanceof Error ? signal.reason.message : String(signal.reason);
+		return {
+			index,
+			id,
+			agent: agent.name,
+			agentSource: agent.source,
+			task,
+			assignment,
+			description,
+			exitCode: 1,
+			output: "",
+			stderr: "Cancelled before start",
+			truncated: false,
+			durationMs: 0,
+			tokens: 0,
+			error: "Cancelled before start",
+			aborted: true,
+			abortReason: message,
+		};
+	}
+
+	const userMessage = context?.trim() ? `${context.trim()}\n\n${task}` : task;
+
+	try {
+		const { replyText, assistantMessage } = await session.runToollessTurn({
+			model,
+			systemPrompt: agent.systemPrompt,
+			userMessage,
+			signal,
+			thinkingLevel,
+		});
+
+		const usage = assistantMessage.usage;
+		const lineCount = replyText.split("\n").length;
+
+		return {
+			index,
+			id,
+			agent: agent.name,
+			agentSource: agent.source,
+			task,
+			assignment,
+			description,
+			exitCode: 0,
+			output: replyText,
+			stderr: "",
+			truncated: false,
+			durationMs: Date.now() - taskStart,
+			tokens: usage?.totalTokens ?? 0,
+			contextTokens: usage?.input,
+			contextWindow: model.contextWindow,
+			resolvedModel: `${model.provider}/${model.id}`,
+			outputMeta: { lineCount, charCount: replyText.length },
+			usage,
+		};
+	} catch (err) {
+		if (signal?.aborted) {
+			const message = signal.reason instanceof Error ? signal.reason.message : String(signal.reason);
+			return {
+				index,
+				id,
+				agent: agent.name,
+				agentSource: agent.source,
+				task,
+				assignment,
+				description,
+				exitCode: 1,
+				output: "",
+				stderr: "Cancelled",
+				truncated: false,
+				durationMs: Date.now() - taskStart,
+				tokens: 0,
+				error: "Cancelled",
+				aborted: true,
+				abortReason: message,
+			};
+		}
+
+		const message = err instanceof Error ? err.message : String(err);
+		return {
+			index,
+			id,
+			agent: agent.name,
+			agentSource: agent.source,
+			task,
+			assignment,
+			description,
+			exitCode: 1,
+			output: "",
+			stderr: message,
+			truncated: false,
+			durationMs: Date.now() - taskStart,
+			tokens: 0,
+			error: message,
+		};
+	}
+}
+
 
 /**
  * Run a single agent in-process.
