@@ -10,7 +10,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getAgentDir, logger } from "@oh-my-pi/pi-utils";
-import type { LocalInferenceConfig } from "../config/local-inference-config";
+import type { LocalInferenceConfig, ModelTier } from "../config/local-inference-config";
 
 const STATE_FILE = path.join(getAgentDir(), ".local-inference-state.json");
 const SLOT_MODE_FILE = path.join(getAgentDir(), ".local-inference-slot-mode");
@@ -19,6 +19,7 @@ interface LocalInferenceState {
 	currentSlots: number;
 	providerBaseUrl: string;
 	pid?: number;
+	tier?: ModelTier;
 }
 
 async function readState(): Promise<LocalInferenceState | null> {
@@ -61,9 +62,9 @@ async function sshIsAlive(host: string, pid: number): Promise<boolean> {
  * - stdout parses to a non-zero integer: that is the new PID; return it.
  * - stdout unparseable: throw a descriptive error.
  */
-async function sshStartServer(host: string, restartScript: string, slots: number): Promise<number> {
-	const remoteCmd = `${restartScript} ${slots}`;
-	logger.debug("local-inference: starting remote server", { host, slots, remoteCmd });
+async function sshStartServer(host: string, restartScript: string, slots: number, tier: ModelTier): Promise<number> {
+	const remoteCmd = `${restartScript} ${slots} ${tier}`;
+	logger.debug("local-inference: starting remote server", { host, slots, tier, remoteCmd });
 	const proc = Bun.spawn(["ssh", host, remoteCmd], {
 		stdout: "pipe",
 		stderr: "pipe",
@@ -101,8 +102,9 @@ async function pollHealth(url: string, timeoutMs: number, pollIntervalMs: number
 	throw new Error(`Local inference server did not become healthy within ${timeoutMs}ms (url: ${url})`);
 }
 
-function shouldRestart(agentName: string, desired: number, current: number | null): boolean {
+function shouldRestart(agentName: string, desired: number, current: number | null, desiredTier: ModelTier, currentTier: ModelTier | undefined): boolean {
 	if (current === null) return true; // unknown state — always restart
+	if (desiredTier !== currentTier) return true; // model swap requires restart
 	if (desired === current) return false;
 	if (agentName === "explore") return desired > current; // only upscale for explore
 	return true; // task and others always get exact slot count
@@ -151,30 +153,34 @@ let currentOperation: Promise<number> = Promise.resolve(0);
  *
  * @param agentName - "explore" | "task" | other agent name
  * @param desiredSlots - number of parallel slots needed
+ * @param desiredTier - model tier ("f" for fast 35B, "s" for slow 27B)
  * @param config - parsed local-inference.yml
  * @param providerBaseUrl - baseUrl from models.yml for the controlled provider
  */
 export function ensureLocalInferenceSlots(
 	agentName: string,
 	desiredSlots: number,
+	desiredTier: ModelTier,
 	config: LocalInferenceConfig,
 	providerBaseUrl: string,
 ): Promise<number> {
-	currentOperation = currentOperation.then(() => _ensureSlots(agentName, desiredSlots, config, providerBaseUrl));
+	currentOperation = currentOperation.then(() => _ensureSlots(agentName, desiredSlots, desiredTier, config, providerBaseUrl));
 	return currentOperation;
 }
 
 async function _ensureSlots(
 	agentName: string,
 	desiredSlots: number,
+	desiredTier: ModelTier,
 	config: LocalInferenceConfig,
 	providerBaseUrl: string,
 ): Promise<number> {
 	const state = await readState();
 	const currentSlots = state?.currentSlots ?? null;
 	const savedPid = state?.pid ?? null;
+	const currentTier = state?.tier;
 
-	let needsRestart = shouldRestart(agentName, desiredSlots, currentSlots);
+	let needsRestart = shouldRestart(agentName, desiredSlots, currentSlots, desiredTier, currentTier);
 
 	// Even when the slot count matches, the server may have crashed between
 	// calls. If we have a saved pid, liveness-check it; a dead server forces a
@@ -203,7 +209,7 @@ async function _ensureSlots(
 		await sshSigterm(config.ssh.host, savedPid);
 	}
 
-	const newPid = await sshStartServer(config.ssh.host, config.ssh.restartScript, desiredSlots);
+	const newPid = await sshStartServer(config.ssh.host, config.ssh.restartScript, desiredSlots, desiredTier);
 
 	const healthUrl = deriveHealthUrl(config, providerBaseUrl);
 	await pollHealth(healthUrl, config.healthCheck.timeoutMs, config.healthCheck.pollIntervalMs);
@@ -216,7 +222,7 @@ async function _ensureSlots(
 		await fs.rm(SLOT_MODE_FILE, { force: true });
 	}
 
-	await writeState({ currentSlots: desiredSlots, providerBaseUrl, pid: newPid });
+	await writeState({ currentSlots: desiredSlots, providerBaseUrl, pid: newPid, tier: desiredTier });
 	logger.debug("local-inference: ready", { desiredSlots, newPid });
 	return desiredSlots;
 }

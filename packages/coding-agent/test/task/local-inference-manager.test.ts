@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "bun:
 import * as fs from "node:fs/promises";
 import { hookFetch } from "@oh-my-pi/pi-utils";
 import type { Subprocess } from "bun";
-import type { LocalInferenceConfig } from "../../src/config/local-inference-config";
+import type { LocalInferenceConfig, ModelTier } from "../../src/config/local-inference-config";
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -130,6 +130,7 @@ async function importModule(version: string) {
 		ensureLocalInferenceSlots: (
 			agentName: string,
 			desiredSlots: number,
+			desiredTier: ModelTier,
 			config: LocalInferenceConfig,
 			providerBaseUrl: string,
 		) => Promise<number>;
@@ -164,6 +165,7 @@ describe("local-inference-manager (restart path)", () => {
 	let ensure: (
 		agentName: string,
 		desiredSlots: number,
+		desiredTier: ModelTier,
 		config: LocalInferenceConfig,
 		providerBaseUrl: string,
 	) => Promise<number>;
@@ -177,8 +179,7 @@ describe("local-inference-manager (restart path)", () => {
 		wireMocks();
 		using _hook = hookFetch(() => new Response(null, { status: 200 }));
 		setStateFile(null);
-
-		const result = await ensure("task", 2, makeConfig(), BASE_URL);
+		const result = await ensure("task", 2, "s", makeConfig(), BASE_URL);
 
 		expect(result).toBe(2);
 
@@ -205,9 +206,9 @@ describe("local-inference-manager (restart path)", () => {
 	it("matching slots with alive pid returns currentSlots without restart", async () => {
 		wireMocks();
 		using _hook = hookFetch(() => new Response(null, { status: 200 }));
-		setStateFile({ currentSlots: 2, providerBaseUrl: BASE_URL, pid: 42 });
+		setStateFile({ currentSlots: 2, providerBaseUrl: BASE_URL, pid: 42, tier: "s" });
 
-		const result = await ensure("task", 2, makeConfig(), BASE_URL);
+		const result = await ensure("task", 2, "s", makeConfig(), BASE_URL);
 
 		expect(result).toBe(2);
 		expect(spawnCalls.length).toBe(1);
@@ -217,10 +218,10 @@ describe("local-inference-manager (restart path)", () => {
 	it("matching slots with dead pid sigterms then restarts", async () => {
 		wireMocks();
 		using _hook = hookFetch(() => new Response(null, { status: 200 }));
-		setStateFile({ currentSlots: 2, providerBaseUrl: BASE_URL, pid: 42 });
+		setStateFile({ currentSlots: 2, providerBaseUrl: BASE_URL, pid: 42, tier: "s" });
 		setSpawnBehavior("kill -0", { exitCode: 1 });
 
-		const result = await ensure("task", 2, makeConfig(), BASE_URL);
+		const result = await ensure("task", 2, "s", makeConfig(), BASE_URL);
 
 		expect(result).toBe(2);
 
@@ -232,6 +233,43 @@ describe("local-inference-manager (restart path)", () => {
 
 		const startCalls = spawnCalls.filter(c => c.cmd.join(" ").includes("ai.sh"));
 		expect(startCalls.length).toBe(1);
+	});
+
+	it("passes model tier as second arg to restart script and persists it", async () => {
+		wireMocks();
+		using _hook = hookFetch(() => new Response(null, { status: 200 }));
+		setStateFile(null);
+		setSpawnBehavior("ai.sh", { stdout: "12345", exitCode: 0 });
+
+		await ensure("explore", 2, "f", makeConfig(), BASE_URL);
+
+		const startCall = spawnCalls.find(c => c.cmd.join(" ").includes("ai.sh"));
+		expect(startCall).toBeDefined();
+		const cmdString = startCall!.cmd.join(" ");
+		// remoteCmd is "~/ai.sh 2 f"; ssh args are ["ssh", host, "~/ai.sh 2 f"]
+		expect(cmdString).toMatch(/ai\.sh 2 f/);
+
+		const stateWrite = writeCalls.find(c => c.data.includes("currentSlots"));
+		expect(stateWrite).toBeDefined();
+		const written = JSON.parse(stateWrite!.data);
+		expect(written.tier).toBe("f");
+	});
+
+	it("tier mismatch forces restart even when slot count matches", async () => {
+		wireMocks();
+		using _hook = hookFetch(() => new Response(null, { status: 200 }));
+		// Server running tier "f", 2 slots, alive pid — but we want "s".
+		setStateFile({ currentSlots: 2, providerBaseUrl: BASE_URL, pid: 42, tier: "f" });
+
+		await ensure("task", 2, "s", makeConfig(), BASE_URL);
+
+		const startCalls = spawnCalls.filter(c => c.cmd.join(" ").includes("ai.sh"));
+		expect(startCalls.length).toBeGreaterThanOrEqual(1);
+		const killCalls = spawnCalls.filter(c => {
+			const joined = c.cmd.join(" ");
+			return joined.includes("kill") && !joined.includes("-0");
+		});
+		expect(killCalls.length).toBeGreaterThanOrEqual(1);
 	});
 });
 
@@ -245,6 +283,7 @@ describe("local-inference-manager (slot-mode)", () => {
 	let ensure: (
 		agentName: string,
 		desiredSlots: number,
+		desiredTier: ModelTier,
 		config: LocalInferenceConfig,
 		providerBaseUrl: string,
 	) => Promise<number>;
@@ -260,7 +299,7 @@ describe("local-inference-manager (slot-mode)", () => {
 		setStateFile(null);
 		setSpawnBehavior("ai.sh", { stdout: "12345", exitCode: 0 });
 
-		await ensure("task", 1, makeConfig(), BASE_URL);
+		await ensure("task", 1, "s", makeConfig(), BASE_URL);
 
 		const slotModeWrite = writeCalls.find(c => c.data.includes("baseUrl"));
 		expect(slotModeWrite).toBeDefined();
@@ -273,7 +312,7 @@ describe("local-inference-manager (slot-mode)", () => {
 		mockState = null;
 		setSpawnBehavior("ai.sh", { stdout: "12345", exitCode: 0 });
 
-		await ensure("task", 2, makeConfig(), BASE_URL);
+		await ensure("task", 2, "s", makeConfig(), BASE_URL);
 
 		expect(rmCalls.length).toBeGreaterThanOrEqual(1);
 	});
@@ -289,6 +328,7 @@ describe('local-inference-manager (sshStartServer stdout "0")', () => {
 	let ensure: (
 		agentName: string,
 		desiredSlots: number,
+		desiredTier: ModelTier,
 		config: LocalInferenceConfig,
 		providerBaseUrl: string,
 	) => Promise<number>;
@@ -304,7 +344,7 @@ describe('local-inference-manager (sshStartServer stdout "0")', () => {
 		setStateFile(null);
 		setSpawnBehavior("ai.sh", { stdout: "0", exitCode: 0 });
 
-		await expect(ensure("task", 2, makeConfig(), BASE_URL)).rejects.toThrow(
+		await expect(ensure("task", 2, "s", makeConfig(), BASE_URL)).rejects.toThrow(
 			"model is unavailable: server did not stop within 5 s after SIGTERM",
 		);
 	});
@@ -316,6 +356,7 @@ describe('local-inference-manager (sshStartServer stdout "garbage")', () => {
 	let ensure: (
 		agentName: string,
 		desiredSlots: number,
+		desiredTier: ModelTier,
 		config: LocalInferenceConfig,
 		providerBaseUrl: string,
 	) => Promise<number>;
@@ -331,6 +372,6 @@ describe('local-inference-manager (sshStartServer stdout "garbage")', () => {
 		setStateFile(null);
 		setSpawnBehavior("ai.sh", { stdout: "garbage", exitCode: 0 });
 
-		await expect(ensure("task", 2, makeConfig(), BASE_URL)).rejects.toThrow("unparseable server PID");
+		await expect(ensure("task", 2, "s", makeConfig(), BASE_URL)).rejects.toThrow("unparseable server PID");
 	});
 });
