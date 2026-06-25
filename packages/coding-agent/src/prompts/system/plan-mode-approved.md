@@ -15,16 +15,16 @@ IMPORTANT: The model server for this session runs with {{localInferenceSlotLimit
 
 {{/if}}
 <critical>
-You MUST NOT read the stage files. You MUST NOT read any source files or explore the codebase. You MUST NOT execute any stage work yourself. Your ONLY job is to spawn task subagents — one per stage, in order — and wait for each to complete before spawning the next.
+You MUST NOT read the stage files. You MUST NOT read any source files or explore the codebase. You MUST NOT execute any stage work yourself. Do NOT search for AGENTS.md, CLAUDE.md, or any other project files — project conventions are already injected into each subagent's system prompt automatically. Your ONLY job is to spawn task subagents — one per stage, in order — and wait for each to complete before spawning the next.
 </critical>
 
 <instruction>
 For each stage in order (sequentially, one at a time), spawn a task subagent whose assignment:
 - Names the stage file path explicitly (from the list above) and tells the subagent to read it and execute ALL instructions in it in full, including any `git commit` step after verification passes.
 - States the acceptance criteria for that stage.
-- In `context`: include only the contents of AGENTS.md (already in your conversation context — copy it verbatim, do not re-read it). Do not explore the codebase or read any other files to build context. The stage file and AGENTS.md are all the subagent needs.
+- Omit `context` entirely unless you have session-specific information (e.g., a environment quirk from this conversation) that is not already covered by the stage file. Do not read any files to populate it.
 
-The files already exist on disk. Do NOT recreate or rewrite them.
+The stage files already exist on disk. Do NOT recreate or rewrite them.
 {{#has tools "todo"}}
 Before execution, initialize todo tracking with `todo`.
 After each completed stage, immediately update `todo`.
