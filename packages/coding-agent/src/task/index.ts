@@ -19,7 +19,7 @@ import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "@oh-my
 import type { Usage } from "@oh-my-pi/pi-ai";
 import { $env, logger, prompt, Snowflake } from "@oh-my-pi/pi-utils";
 import type { ToolSession } from "..";
-import { resolveAgentModelPatterns } from "../config/model-resolver";
+import { resolveAgentModelPatterns, resolveModelOverrideWithAuthFallback } from "../config/model-resolver";
 import { MCPManager } from "../mcp/manager";
 import type { Theme } from "../modes/theme/theme";
 import planModeSubagentPrompt from "../prompts/system/plan-mode-subagent.md" with { type: "text" };
@@ -39,13 +39,13 @@ import {
 } from "./types";
 // Import review tools for side effects (registers subagent tool handlers)
 import "../tools/review";
-import { LocalInferenceConfigFile } from "../config/local-inference-config";
+import { LocalInferenceConfigFile, resolveLocalInferenceTier } from "../config/local-inference-config";
 import type { LocalProtocolOptions } from "../internal-urls";
 import { loadOverallPlanReference } from "../plan-mode/plan-handoff";
 import { generateCommitMessage } from "../utils/commit-message-generator";
 import * as git from "../utils/git";
 import { discoverAgents, getAgent } from "./discovery";
-import { runSubprocess } from "./executor";
+import { runSubprocess, runToollessSubagent } from "./executor";
 import { ensureLocalInferenceSlots, eraseSlot } from "./local-inference-manager";
 import { AgentOutputManager } from "./output-manager";
 import { mapWithConcurrencyLimit, Semaphore } from "./parallel";
@@ -778,7 +778,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 
 		const planModeState = this.session.getPlanModeState?.();
 		const planModeTools = ["read", "search", "find", "lsp", "web_search"];
-		const effectiveAgent: typeof agent = planModeState?.enabled
+		const effectiveAgent: typeof agent = planModeState?.enabled && !agent.toolless
 			? {
 					...agent,
 					systemPrompt: `${planModeSubagentPrompt}\n\n${agent.systemPrompt}`,
@@ -1055,6 +1055,81 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					await eraseSlot(localInferenceBaseUrl, slotId);
 				}
 				try {
+					// Tool-less reasoning agents bypass the subagent tool-loop entirely:
+					// the reasoning model cannot call tools (including yield), so a direct
+					// single-turn LLM call is used instead of runSubprocess + isolation.
+					if (effectiveAgent.toolless) {
+						const taskStart = Date.now();
+						const { model: toollessModel, thinkingLevel: resolvedThinkingLevel, explicitThinkingLevel } =
+							await resolveModelOverrideWithAuthFallback(
+								modelOverride,
+								parentActiveModelPattern,
+								this.session.modelRegistry!,
+								this.session.settings,
+							);
+						const effectiveThinkingLevel = explicitThinkingLevel
+							? resolvedThinkingLevel
+							: (effectiveAgent.thinkingLevel ?? resolvedThinkingLevel);
+						if (!toollessModel) {
+							const message = `Could not resolve model "${effectiveAgent.name}" for reasoning agent (model override: ${modelOverride.join(", ")}).`;
+							return {
+								index,
+								id: task.id,
+								agent: effectiveAgent.name,
+								agentSource: effectiveAgent.source,
+								task: renderSubagentUserPrompt(task.assignment, simpleMode),
+								assignment: task.assignment.trim(),
+								description: task.description,
+								exitCode: 1,
+								output: "",
+								stderr: message,
+								truncated: false,
+								durationMs: Date.now() - taskStart,
+								tokens: 0,
+								modelOverride,
+								error: message,
+							};
+						}
+						const result = await runToollessSubagent({
+							agent: effectiveAgent,
+							task: renderSubagentUserPrompt(task.assignment, simpleMode),
+							context: sharedContext,
+							assignment: task.assignment.trim(),
+							description: task.description,
+							index,
+							id: task.id,
+							model: toollessModel,
+							thinkingLevel: effectiveThinkingLevel,
+							signal,
+							cwd: this.session.cwd,
+							authStorage: this.session.modelRegistry!.authStorage,
+							modelRegistry: this.session.modelRegistry!,
+							settings: this.session.settings,
+							taskStart,
+						});
+						// Final progress entry
+						progressMap.set(index, {
+							...structuredClone({
+								index,
+								id: task.id,
+								agent: effectiveAgent.name,
+								agentSource: effectiveAgent.source,
+								assignment: task.assignment.trim(),
+								status: "completed",
+								task: renderSubagentUserPrompt(task.assignment, simpleMode),
+								recentTools: [],
+								recentOutput: [],
+								toolCount: 0,
+								tokens: result.tokens,
+								cost: 0,
+								durationMs: result.durationMs,
+								modelOverride,
+								description: task.description,
+							}),
+						});
+						emitProgress();
+						return result;
+					}
 					if (!isIsolated) {
 						return await runSubprocess({
 							cwd: this.session.cwd,
@@ -1253,9 +1328,7 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					const liResult = LocalInferenceConfigFile.tryLoad();
 					if (liResult.status === "ok") {
 						const liConfig = liResult.value;
-						const slotLimit =
-							agentName === "explore" ? liConfig.agentConcurrency.explore : liConfig.agentConcurrency.task;
-						const desiredTier = agentName === "explore" ? liConfig.modelTier.explore : liConfig.modelTier.task;
+						const { slotLimit, desiredTier } = resolveLocalInferenceTier(agentName, liConfig);
 						effectiveMaxConcurrency = Math.min(maxConcurrency, slotLimit);
 						// Hard guard: local-inference servers have a fixed slot budget. Reject
 						// over-limit batches before any subagent starts so the model corrects and

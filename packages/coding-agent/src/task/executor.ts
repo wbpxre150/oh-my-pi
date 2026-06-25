@@ -625,7 +625,10 @@ export interface RunToollessSubagentOptions {
 	model: Model<Api>;
 	thinkingLevel?: ThinkingLevel;
 	signal?: AbortSignal;
-	session: AgentSession;
+	cwd: string;
+	authStorage: AuthStorage;
+	modelRegistry: ModelRegistry;
+	settings: Settings;
 	taskStart: number;
 }
 
@@ -638,7 +641,7 @@ export interface RunToollessSubagentOptions {
 export async function runToollessSubagent(
 	options: RunToollessSubagentOptions,
 ): Promise<SingleResult> {
-	const { agent, task, context, assignment, description, index, id, model, thinkingLevel, signal, session, taskStart } =
+	const { agent, task, context, assignment, description, index, id, model, thinkingLevel, signal, cwd, authStorage, modelRegistry, settings, taskStart } =
 		options;
 
 	// Check if already aborted
@@ -665,6 +668,22 @@ export async function runToollessSubagent(
 	}
 
 	const userMessage = context?.trim() ? `${context.trim()}\n\n${task}` : task;
+
+	// Create a minimal AgentSession for the single tool-less turn.
+	const sessionManager = SessionManager.inMemory(cwd);
+	const { session } = await createAgentSession({
+		cwd,
+		authStorage,
+		modelRegistry,
+		settings,
+		model,
+		thinkingLevel,
+		toolNames: [],
+		requireYieldTool: false,
+		sessionManager,
+		hasUI: false,
+		systemPrompt: () => [agent.systemPrompt],
+	});
 
 	try {
 		const { replyText, assistantMessage } = await session.runToollessTurn({

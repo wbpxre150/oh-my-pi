@@ -74,3 +74,22 @@ export type LocalInferenceConfig = z.infer<typeof LocalInferenceConfigSchema>;
 
 /** Singleton config file loader for ~/.omp/agent/local-inference.yml */
 export const LocalInferenceConfigFile = new ConfigFile("local-inference", LocalInferenceConfigSchema);
+
+/**
+ * Resolve local-inference slot limit and model tier based on agent name.
+ * - explore -> fast tier (f), explore concurrency
+ * - reasoning -> reasoning tier (r), reasoning concurrency (1)
+ * - everything else (task, etc.) -> slow tier (s), task concurrency
+ */
+export function resolveLocalInferenceTier(
+  agentName: string,
+  config: LocalInferenceConfig,
+): { slotLimit: number; desiredTier: ModelTier } {
+  if (agentName === "explore") {
+    return { slotLimit: config.agentConcurrency.explore, desiredTier: config.modelTier.explore };
+  }
+  if (agentName === "reasoning") {
+    return { slotLimit: config.agentConcurrency.reasoning, desiredTier: config.modelTier.reasoning };
+  }
+  return { slotLimit: config.agentConcurrency.task, desiredTier: config.modelTier.task };
+}
