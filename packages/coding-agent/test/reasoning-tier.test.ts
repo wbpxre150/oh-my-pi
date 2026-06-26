@@ -14,7 +14,7 @@ describe("reasoning tier resolution", () => {
 		const config = LocalInferenceConfigSchema.parse({});
 		const res = resolveLocalInferenceTier("reasoning", config);
 		expect(res.desiredTier).toBe("r");
-		expect(res.slotLimit).toBe(1);
+		expect(res.slotLimit).toBe(5);
 	});
 
 	test("other agents return slow tier and task concurrency", () => {

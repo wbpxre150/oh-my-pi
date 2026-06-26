@@ -32,6 +32,6 @@ describe("reasoning agent foundation", () => {
 	test("local-inference config has reasoning tier and concurrency defaults", () => {
 		const cfg = LocalInferenceConfigSchema.parse({});
 		expect(cfg.modelTier.reasoning).toBe("r");
-		expect(cfg.agentConcurrency.reasoning).toBe(1);
+		expect(cfg.agentConcurrency.reasoning).toBe(5);
 	});
 });

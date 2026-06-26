@@ -42,12 +42,13 @@ export const LocalInferenceConfigSchema = z.object({
 			 */
 			task: z.number().int().positive().default(1),
 			/**
-			 * Slots for the `reasoning` agent type.
-			 * Should be 1 as reasoning models are heavy and serial.
+			 * Maximum parallel slots for the `reasoning` agent type.
+			 * Reasoning models are resource-heavy but throughput scales with slots.
+			 * Defaults to 5; adjust based on GPU memory and serving capacity.
 			 */
-			reasoning: z.number().int().positive().default(1),
+			reasoning: z.number().int().positive().default(5),
 		})
-		.default({ explore: 2, task: 1, reasoning: 1 }),
+		.default({ explore: 2, task: 1, reasoning: 5 }),
 	modelTier: z
 		.object({
 			/**
@@ -77,9 +78,9 @@ export const LocalInferenceConfigFile = new ConfigFile("local-inference", LocalI
 
 /**
  * Resolve local-inference slot limit and model tier based on agent name.
- * - explore -> fast tier (f), explore concurrency
- * - reasoning -> reasoning tier (r), reasoning concurrency (1)
- * - everything else (task, etc.) -> slow tier (s), task concurrency
+ * - explore -> fast tier (f), explore concurrency (default 2)
+ * - reasoning -> reasoning tier (r), reasoning concurrency (default 5)
+ * - everything else (task, etc.) -> slow tier (s), task concurrency (default 1)
  */
 export function resolveLocalInferenceTier(
 	agentName: string,

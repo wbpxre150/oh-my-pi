@@ -499,6 +499,19 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 								details: { projectAgentsDir: null, results: [], totalDurationMs: 0 },
 							};
 						}
+					} else if (params.agent === "reasoning") {
+						const reasoningLimit = liResult.value.agentConcurrency.reasoning;
+						if (taskCount > reasoningLimit) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `reasoning agents are limited to ${reasoningLimit} parallel slot(s) on this server. Resubmit with at most ${reasoningLimit} task(s) per call.`,
+									},
+								],
+								details: { projectAgentsDir: null, results: [], totalDurationMs: 0 },
+							};
+						}
 					} else {
 						if (taskCount > 1) {
 							return {
@@ -1346,6 +1359,19 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 										{
 											type: "text",
 											text: `explore agents are limited to ${exploreLimit} parallel slot(s) on this server. Resubmit with at most ${exploreLimit} task(s) per call.`,
+										},
+									],
+									details: { projectAgentsDir, results: [], totalDurationMs: Date.now() - startTime },
+								};
+							}
+						} else if (agentName === "reasoning") {
+							const reasoningLimit = liConfig.agentConcurrency.reasoning;
+							if (taskCount > reasoningLimit) {
+								return {
+									content: [
+										{
+											type: "text",
+											text: `reasoning agents are limited to ${reasoningLimit} parallel slot(s) on this server. Resubmit with at most ${reasoningLimit} task(s) per call.`,
 										},
 									],
 									details: { projectAgentsDir, results: [], totalDurationMs: Date.now() - startTime },
