@@ -778,14 +778,15 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 
 		const planModeState = this.session.getPlanModeState?.();
 		const planModeTools = ["read", "search", "find", "lsp", "web_search"];
-		const effectiveAgent: typeof agent = planModeState?.enabled && !agent.toolless
-			? {
-					...agent,
-					systemPrompt: `${planModeSubagentPrompt}\n\n${agent.systemPrompt}`,
-					tools: planModeTools,
-					spawns: undefined,
-				}
-			: agent;
+		const effectiveAgent: typeof agent =
+			planModeState?.enabled && !agent.toolless
+				? {
+						...agent,
+						systemPrompt: `${planModeSubagentPrompt}\n\n${agent.systemPrompt}`,
+						tools: planModeTools,
+						spawns: undefined,
+					}
+				: agent;
 
 		// Apply per-agent model override from settings (highest priority)
 		const agentModelOverrides = this.session.settings.get("task.agentModelOverrides");
@@ -1060,13 +1061,16 @@ export class TaskTool implements AgentTool<TaskToolSchemaInstance, TaskToolDetai
 					// single-turn LLM call is used instead of runSubprocess + isolation.
 					if (effectiveAgent.toolless) {
 						const taskStart = Date.now();
-						const { model: toollessModel, thinkingLevel: resolvedThinkingLevel, explicitThinkingLevel } =
-							await resolveModelOverrideWithAuthFallback(
-								modelOverride,
-								parentActiveModelPattern,
-								this.session.modelRegistry!,
-								this.session.settings,
-							);
+						const {
+							model: toollessModel,
+							thinkingLevel: resolvedThinkingLevel,
+							explicitThinkingLevel,
+						} = await resolveModelOverrideWithAuthFallback(
+							modelOverride,
+							parentActiveModelPattern,
+							this.session.modelRegistry!,
+							this.session.settings,
+						);
 						const effectiveThinkingLevel = explicitThinkingLevel
 							? resolvedThinkingLevel
 							: (effectiveAgent.thinkingLevel ?? resolvedThinkingLevel);

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { loadBundledAgents, clearBundledAgentsCache } from "../src/task/agents";
-import { parseAgentFields } from "../src/discovery/helpers";
 import { LocalInferenceConfigSchema } from "../src/config/local-inference-config";
+import { parseAgentFields } from "../src/discovery/helpers";
+import { clearBundledAgentsCache, loadBundledAgents } from "../src/task/agents";
 
 describe("reasoning agent foundation", () => {
 	test("reasoning agent is bundled with toolless flag", () => {

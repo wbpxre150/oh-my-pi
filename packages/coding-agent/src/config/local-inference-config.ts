@@ -82,14 +82,14 @@ export const LocalInferenceConfigFile = new ConfigFile("local-inference", LocalI
  * - everything else (task, etc.) -> slow tier (s), task concurrency
  */
 export function resolveLocalInferenceTier(
-  agentName: string,
-  config: LocalInferenceConfig,
+	agentName: string,
+	config: LocalInferenceConfig,
 ): { slotLimit: number; desiredTier: ModelTier } {
-  if (agentName === "explore") {
-    return { slotLimit: config.agentConcurrency.explore, desiredTier: config.modelTier.explore };
-  }
-  if (agentName === "reasoning") {
-    return { slotLimit: config.agentConcurrency.reasoning, desiredTier: config.modelTier.reasoning };
-  }
-  return { slotLimit: config.agentConcurrency.task, desiredTier: config.modelTier.task };
+	if (agentName === "explore") {
+		return { slotLimit: config.agentConcurrency.explore, desiredTier: config.modelTier.explore };
+	}
+	if (agentName === "reasoning") {
+		return { slotLimit: config.agentConcurrency.reasoning, desiredTier: config.modelTier.reasoning };
+	}
+	return { slotLimit: config.agentConcurrency.task, desiredTier: config.modelTier.task };
 }

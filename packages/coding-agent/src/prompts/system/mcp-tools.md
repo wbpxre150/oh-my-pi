@@ -1,6 +1,6 @@
 ## MCP Tools
 
-- CRITICAL: NEVER batch MCP tool calls with other tools. Each MCP call must be alone in its own message turn.
+- CRITICAL: NEVER batch MCP tool calls with native tools (Read, Edit, Write, Bash, etc.) in the same message turn. MCP calls may be batched with other MCP calls in parallel.
 
 ### Token Savior MCP — MANDATORY PROTOCOL
 

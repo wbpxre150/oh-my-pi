@@ -7,7 +7,7 @@
 import path from "node:path";
 import type { AgentEvent, AgentIdentity, AgentTelemetryConfig, ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import { recordHandoff, resolveTelemetry } from "@oh-my-pi/pi-agent-core";
-import type { Model, Api } from "@oh-my-pi/pi-ai";
+import type { Api, Model } from "@oh-my-pi/pi-ai";
 import { runWithSlotId } from "@oh-my-pi/pi-ai";
 import { logger, prompt, untilAborted } from "@oh-my-pi/pi-utils";
 import { ModelRegistry } from "../config/model-registry";
@@ -625,10 +625,12 @@ export interface RunToollessSubagentOptions {
 	model: Model<Api>;
 	thinkingLevel?: ThinkingLevel;
 	signal?: AbortSignal;
-	cwd: string;
-	authStorage: AuthStorage;
-	modelRegistry: ModelRegistry;
-	settings: Settings;
+	/** Optional session to use directly (e.g. for testing). When omitted, a minimal session is created internally. */
+	session?: AgentSession;
+	cwd?: string;
+	authStorage?: AuthStorage;
+	modelRegistry?: ModelRegistry;
+	settings?: Settings;
 	taskStart: number;
 }
 
@@ -638,11 +640,25 @@ export interface RunToollessSubagentOptions {
  * bypassed entirely. Returns SingleResult shaped exactly like runSubprocess's
  * success path so the task tool's result aggregation is unchanged.
  */
-export async function runToollessSubagent(
-	options: RunToollessSubagentOptions,
-): Promise<SingleResult> {
-	const { agent, task, context, assignment, description, index, id, model, thinkingLevel, signal, cwd, authStorage, modelRegistry, settings, taskStart } =
-		options;
+export async function runToollessSubagent(options: RunToollessSubagentOptions): Promise<SingleResult> {
+	const {
+		agent,
+		task,
+		context,
+		assignment,
+		description,
+		index,
+		id,
+		model,
+		thinkingLevel,
+		signal,
+		session: providedSession,
+		cwd,
+		authStorage,
+		modelRegistry,
+		settings,
+		taskStart,
+	} = options;
 
 	// Check if already aborted
 	if (signal?.aborted) {
@@ -669,21 +685,26 @@ export async function runToollessSubagent(
 
 	const userMessage = context?.trim() ? `${context.trim()}\n\n${task}` : task;
 
-	// Create a minimal AgentSession for the single tool-less turn.
-	const sessionManager = SessionManager.inMemory(cwd);
-	const { session } = await createAgentSession({
-		cwd,
-		authStorage,
-		modelRegistry,
-		settings,
-		model,
-		thinkingLevel,
-		toolNames: [],
-		requireYieldTool: false,
-		sessionManager,
-		hasUI: false,
-		systemPrompt: () => [agent.systemPrompt],
-	});
+	// Use provided session (for testing) or create a minimal one.
+	const session =
+		providedSession ??
+		(await (async () => {
+			const sessionManager = SessionManager.inMemory(cwd);
+			const created = await createAgentSession({
+				cwd,
+				authStorage,
+				modelRegistry,
+				settings,
+				model,
+				thinkingLevel,
+				toolNames: [],
+				requireYieldTool: false,
+				sessionManager,
+				hasUI: false,
+				systemPrompt: () => [agent.systemPrompt],
+			});
+			return created.session;
+		})());
 
 	try {
 		const { replyText, assistantMessage } = await session.runToollessTurn({
@@ -759,7 +780,6 @@ export async function runToollessSubagent(
 		};
 	}
 }
-
 
 /**
  * Run a single agent in-process.

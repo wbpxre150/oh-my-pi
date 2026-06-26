@@ -102,7 +102,13 @@ async function pollHealth(url: string, timeoutMs: number, pollIntervalMs: number
 	throw new Error(`Local inference server did not become healthy within ${timeoutMs}ms (url: ${url})`);
 }
 
-function shouldRestart(agentName: string, desired: number, current: number | null, desiredTier: ModelTier, currentTier: ModelTier | undefined): boolean {
+function shouldRestart(
+	agentName: string,
+	desired: number,
+	current: number | null,
+	desiredTier: ModelTier,
+	currentTier: ModelTier | undefined,
+): boolean {
 	if (current === null) return true; // unknown state — always restart
 	if (desiredTier !== currentTier) return true; // model swap requires restart
 	if (desired === current) return false;
@@ -164,7 +170,9 @@ export function ensureLocalInferenceSlots(
 	config: LocalInferenceConfig,
 	providerBaseUrl: string,
 ): Promise<number> {
-	currentOperation = currentOperation.then(() => _ensureSlots(agentName, desiredSlots, desiredTier, config, providerBaseUrl));
+	currentOperation = currentOperation.then(() =>
+		_ensureSlots(agentName, desiredSlots, desiredTier, config, providerBaseUrl),
+	);
 	return currentOperation;
 }
 
